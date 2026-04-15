@@ -1,0 +1,97 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    //
+    // Collection: expenses
+    // Document ID: [auto-generated]
+    // Fields:
+    //   - userId: string (required) - The ID of the user who created the expense
+    //   - description: string (required) - Description of the expense
+    //   - amount: number (required) - The amount of the expense
+    //   - category: string (required) - The category of the expense
+    //   - date: string (required) - The date of the expense in ISO format
+    //   - createdAt: timestamp (required) - When the expense was created
+    //
+    // ===============================================================
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+    
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+    
+    function hasOnlyAllowedFields(fields) {
+      return request.resource.data.keys().hasOnly(fields);
+    }
+    
+    function isValidExpense(data) {
+      return hasOnlyAllowedFields(['userId', 'description', 'amount', 'category', 'date', 'createdAt']) &&
+             data.userId is string && data.userId == request.auth.uid &&
+             data.description is string && data.description.size() > 0 && data.description.size() <= 200 &&
+             data.amount is number && data.amount > 0 &&
+             data.category is string && data.category.size() > 0 && data.category.size() <= 50 &&
+             data.date is string && data.date.matches("^\\d{4}-\\d{2}-\\d{2}.*$") &&
+             data.createdAt is timestamp;
+    }
+
+    function isValidRecurringExpense(data) {
+      return hasOnlyAllowedFields(['userId', 'description', 'amount', 'category', 'frequency', 'nextDueDate', 'createdAt']) &&
+             data.userId is string && data.userId == request.auth.uid &&
+             data.description is string && data.description.size() > 0 && data.description.size() <= 200 &&
+             data.amount is number && data.amount > 0 &&
+             data.category is string && data.category.size() > 0 && data.category.size() <= 50 &&
+             data.frequency is string && data.frequency in ['daily', 'weekly', 'monthly', 'yearly'] &&
+             data.nextDueDate is string && data.nextDueDate.matches("^\\d{4}-\\d{2}-\\d{2}.*$") &&
+             data.createdAt is timestamp;
+    }
+    
+    function areImmutableFieldsUnchanged(fields) {
+      return !request.resource.data.diff(resource.data).affectedKeys().hasAny(fields);
+    }
+
+    // ===============================================================
+    // Rules
+    // ===============================================================
+
+    match /expenses/{expenseId} {
+      // Users can only read their own expenses
+      allow read: if isAuthenticated() && resource.data.userId == request.auth.uid;
+      
+      // Users can create expenses for themselves
+      allow create: if isAuthenticated() && isValidExpense(request.resource.data);
+      
+      // Users can update their own expenses
+      allow update: if isAuthenticated() && 
+                    resource.data.userId == request.auth.uid && 
+                    isValidExpense(request.resource.data) &&
+                    areImmutableFieldsUnchanged(['userId', 'createdAt']);
+                    
+      // Users can delete their own expenses
+      allow delete: if isAuthenticated() && resource.data.userId == request.auth.uid;
+    }
+
+    match /recurringExpenses/{recurringExpenseId} {
+      allow read: if isAuthenticated() && resource.data.userId == request.auth.uid;
+      
+      allow create: if isAuthenticated() && isValidRecurringExpense(request.resource.data);
+      
+      allow update: if isAuthenticated() && 
+                    resource.data.userId == request.auth.uid && 
+                    isValidRecurringExpense(request.resource.data) &&
+                    areImmutableFieldsUnchanged(['userId', 'createdAt']);
+                    
+      allow delete: if isAuthenticated() && resource.data.userId == request.auth.uid;
+    }
+  }
+}

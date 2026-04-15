@@ -1,0 +1,86 @@
+{
+  "entities": {
+    "Expense": {
+      "title": "Expense",
+      "description": "A financial expense record",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "description": "The ID of the user who created the expense"
+        },
+        "description": {
+          "type": "string",
+          "description": "Description of the expense"
+        },
+        "amount": {
+          "type": "number",
+          "description": "The amount of the expense"
+        },
+        "category": {
+          "type": "string",
+          "description": "The category of the expense"
+        },
+        "date": {
+          "type": "string",
+          "description": "The date of the expense in ISO format"
+        },
+        "createdAt": {
+          "type": "timestamp",
+          "description": "When the expense was created"
+        }
+      },
+      "required": ["userId", "description", "amount", "category", "date", "createdAt"]
+    },
+    "RecurringExpense": {
+      "title": "Recurring Expense",
+      "description": "A template for recurring expenses",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "description": "The ID of the user who created the recurring expense"
+        },
+        "description": {
+          "type": "string",
+          "description": "Description of the expense"
+        },
+        "amount": {
+          "type": "number",
+          "description": "The amount of the expense"
+        },
+        "category": {
+          "type": "string",
+          "description": "The category of the expense"
+        },
+        "frequency": {
+          "type": "string",
+          "description": "Frequency of the recurrence: daily, weekly, monthly, yearly"
+        },
+        "nextDueDate": {
+          "type": "string",
+          "description": "The next date this expense should be generated in ISO format"
+        },
+        "createdAt": {
+          "type": "timestamp",
+          "description": "When the recurring expense was created"
+        }
+      },
+      "required": ["userId", "description", "amount", "category", "frequency", "nextDueDate", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/expenses/{expenseId}": {
+      "schema": {
+        "$ref": "#/entities/Expense"
+      },
+      "description": "Expenses created by users"
+    },
+    "/recurringExpenses/{recurringExpenseId}": {
+      "schema": {
+        "$ref": "#/entities/RecurringExpense"
+      },
+      "description": "Recurring expense templates"
+    }
+  }
+}
