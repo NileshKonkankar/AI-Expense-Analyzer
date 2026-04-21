@@ -55,6 +55,14 @@ service cloud.firestore {
              data.nextDueDate is string && data.nextDueDate.matches("^\\d{4}-\\d{2}-\\d{2}.*$") &&
              data.createdAt is timestamp;
     }
+
+    function isValidCategoryRule(data) {
+      return hasOnlyAllowedFields(['userId', 'keyword', 'category', 'createdAt']) &&
+             data.userId is string && data.userId == request.auth.uid &&
+             data.keyword is string && data.keyword.size() > 0 && data.keyword.size() <= 200 &&
+             data.category is string && data.category.size() > 0 && data.category.size() <= 50 &&
+             data.createdAt is timestamp;
+    }
     
     function areImmutableFieldsUnchanged(fields) {
       return !request.resource.data.diff(resource.data).affectedKeys().hasAny(fields);
@@ -91,6 +99,13 @@ service cloud.firestore {
                     isValidRecurringExpense(request.resource.data) &&
                     areImmutableFieldsUnchanged(['userId', 'createdAt']);
                     
+      allow delete: if isAuthenticated() && resource.data.userId == request.auth.uid;
+    }
+
+    match /categoryRules/{ruleId} {
+      allow read: if isAuthenticated() && resource.data.userId == request.auth.uid;
+      allow create: if isAuthenticated() && isValidCategoryRule(request.resource.data);
+      allow update: if isAuthenticated() && resource.data.userId == request.auth.uid && isValidCategoryRule(request.resource.data) && areImmutableFieldsUnchanged(['userId', 'createdAt']);
       allow delete: if isAuthenticated() && resource.data.userId == request.auth.uid;
     }
   }

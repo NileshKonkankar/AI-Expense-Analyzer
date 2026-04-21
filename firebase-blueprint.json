@@ -67,6 +67,26 @@
         }
       },
       "required": ["userId", "description", "amount", "category", "frequency", "nextDueDate", "createdAt"]
+    },
+    "CategoryRule": {
+      "title": "Category Rule",
+      "description": "User preference for AI categorization",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string"
+        },
+        "keyword": {
+          "type": "string"
+        },
+        "category": {
+          "type": "string"
+        },
+        "createdAt": {
+          "type": "timestamp"
+        }
+      },
+      "required": ["userId", "keyword", "category", "createdAt"]
     }
   },
   "firestore": {
@@ -81,6 +101,12 @@
         "$ref": "#/entities/RecurringExpense"
       },
       "description": "Recurring expense templates"
+    },
+    "/categoryRules/{ruleId}": {
+      "schema": {
+        "$ref": "#/entities/CategoryRule"
+      },
+      "description": "Custom user rules for categorization"
     }
   }
 }

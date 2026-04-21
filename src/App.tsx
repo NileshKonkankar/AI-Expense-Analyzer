@@ -4,7 +4,7 @@ import { db, auth, loginWithGoogle, logout } from './firebase';
 import { onAuthStateChanged } from 'firebase/auth';
 import { format } from 'date-fns';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RechartsTooltip, BarChart, Bar, XAxis, YAxis, CartesianGrid } from 'recharts';
-import { Plus, Trash2, LogOut, Loader2, Sparkles, TrendingUp, DollarSign, PieChart as PieChartIcon, Activity, Sun, Moon, Repeat } from 'lucide-react';
+import { Plus, Trash2, LogOut, Loader2, Sparkles, TrendingUp, DollarSign, PieChart as PieChartIcon, Activity, Sun, Moon, Repeat, Lightbulb, Target } from 'lucide-react';
 import { cn } from './lib/utils';
 
 import { GoogleGenAI, Type } from "@google/genai";
@@ -33,6 +33,14 @@ interface RecurringExpense {
   createdAt: any;
 }
 
+interface CategoryRule {
+  id: string;
+  userId: string;
+  keyword: string;
+  category: string;
+  createdAt: any;
+}
+
 const CATEGORY_COLORS: Record<string, string> = {
   Food: '#F59E0B',
   Rent: '#3B82F6',
@@ -51,6 +59,7 @@ export default function App() {
   const [isAuthReady, setIsAuthReady] = useState(false);
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [recurringExpenses, setRecurringExpenses] = useState<RecurringExpense[]>([]);
+  const [categoryRules, setCategoryRules] = useState<CategoryRule[]>([]);
   const [loading, setLoading] = useState(true);
   const [isDarkMode, setIsDarkMode] = useState(false);
 
@@ -90,6 +99,7 @@ export default function App() {
     if (!user) {
       setExpenses([]);
       setRecurringExpenses([]);
+      setCategoryRules([]);
       setLoading(false);
       return;
     }
@@ -153,9 +163,22 @@ export default function App() {
       }
     });
 
+    const qRules = query(
+      collection(db, 'categoryRules'),
+      where('userId', '==', user.uid)
+    );
+
+    const unsubscribeRules = onSnapshot(qRules, (snapshot) => {
+      setCategoryRules(snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      })) as CategoryRule[]);
+    });
+
     return () => {
       unsubscribe();
       unsubscribeRecurring();
+      unsubscribeRules();
     };
   }, [user, isAuthReady]);
 
@@ -236,7 +259,7 @@ export default function App() {
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
           {/* Left Column: Form & List */}
           <div className="lg:col-span-1 space-y-8">
-            <ExpenseForm userId={user.uid} />
+            <ExpenseForm userId={user.uid} expenses={expenses} categoryRules={categoryRules} />
             <ExpenseList expenses={expenses} />
             <RecurringExpenseList recurringExpenses={recurringExpenses} />
           </div>
@@ -252,23 +275,36 @@ export default function App() {
   );
 }
 
-function ExpenseForm({ userId }: { userId: string }) {
+function ExpenseForm({ userId, expenses, categoryRules }: { userId: string, expenses: Expense[], categoryRules: CategoryRule[] }) {
   const [description, setDescription] = useState('');
   const [amount, setAmount] = useState('');
   const [date, setDate] = useState(format(new Date(), 'yyyy-MM-dd'));
   const [frequency, setFrequency] = useState('none');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [suggestedCategory, setSuggestedCategory] = useState<string | null>(null);
+  const [originalAiCategory, setOriginalAiCategory] = useState<string | null>(null);
+  const [isAskingRuleConfirmation, setIsAskingRuleConfirmation] = useState(false);
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleAnalyze = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!description || !amount || !date) return;
 
     setIsSubmitting(true);
     try {
+      let contextStr = '';
+      if (categoryRules.length > 0) {
+        contextStr += `User's custom categorization rules:\n${categoryRules.map(r => `- If expense description involves "${r.keyword}", strictly categorize as -> ${r.category}`).join('\n')}\n\n`;
+      }
+      
+      const recentExpenses = expenses.slice(0, 10);
+      if (recentExpenses.length > 0) {
+        contextStr += `Here are some of the user's past expenses and their corrected categories. Use them as reference for the user's categorization habits:\n${recentExpenses.map(e => `- "${e.description}" -> ${e.category}`).join('\n')}\n\n`;
+      }
+
       // Call AI to categorize
       const response = await ai.models.generateContent({
         model: "gemini-3-flash-preview",
-        contents: `Categorize the following expense: "${description}" for amount ₹${amount}. Return only a JSON object with a 'category' string field. Choose from: Food, Rent, Travel, Utilities, Entertainment, Shopping, Health, Other.`,
+        contents: `${contextStr}Categorize the following expense: "${description}" for amount ₹${amount}. Return only a JSON object with a 'category' string field. Choose from: Food, Rent, Travel, Utilities, Entertainment, Shopping, Health, Other.`,
         config: {
           responseMimeType: "application/json",
           responseSchema: {
@@ -285,7 +321,32 @@ function ExpenseForm({ userId }: { userId: string }) {
       });
       
       const data = JSON.parse(response.text || '{"category": "Other"}');
-      const category = data.category || 'Other';
+      setSuggestedCategory(data.category || 'Other');
+      setOriginalAiCategory(data.category || 'Other');
+    } catch (error) {
+      console.error("Error analyzing expense:", error);
+      alert("Failed to analyze expense. Please try again.");
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleConfirmNext = async () => {
+    if (originalAiCategory && suggestedCategory !== originalAiCategory && !isAskingRuleConfirmation) {
+      setIsAskingRuleConfirmation(true);
+      return;
+    }
+    await executeSaveOperation(false);
+  };
+
+  const handleConfirmRule = async (saveRule: boolean) => {
+    await executeSaveOperation(saveRule);
+  };
+
+  const executeSaveOperation = async (saveRule: boolean) => {
+    setIsSubmitting(true);
+    try {
+      const category = suggestedCategory || 'Other';
 
       if (frequency === 'none') {
         await addDoc(collection(db, 'expenses'), {
@@ -309,9 +370,21 @@ function ExpenseForm({ userId }: { userId: string }) {
         });
       }
 
+      if (saveRule) {
+        await addDoc(collection(db, 'categoryRules'), {
+          userId,
+          keyword: description, // Simplistic approach: map exact description
+          category,
+          createdAt: serverTimestamp()
+        });
+      }
+
       setDescription('');
       setAmount('');
       setFrequency('none');
+      setSuggestedCategory(null);
+      setOriginalAiCategory(null);
+      setIsAskingRuleConfirmation(false);
     } catch (error) {
       console.error("Error adding expense:", error);
       alert("Failed to add expense. Please try again.");
@@ -320,13 +393,100 @@ function ExpenseForm({ userId }: { userId: string }) {
     }
   };
 
+  if (isAskingRuleConfirmation && suggestedCategory) {
+    return (
+      <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-800 p-6 transition-colors duration-200 animate-in fade-in zoom-in-95">
+        <h2 className="text-lg font-semibold mb-4 flex items-center gap-2 text-indigo-900 dark:text-indigo-100">
+          <Sparkles className="w-5 h-5 text-indigo-600 dark:text-indigo-500" />
+          Update AI Preferences?
+        </h2>
+        <div className="space-y-4">
+          <p className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed">
+            You changed the category for <strong>"{description}"</strong> from <span className="text-gray-500 line-through">{originalAiCategory}</span> to <span className="font-semibold text-blue-600 dark:text-blue-400">{suggestedCategory}</span>.
+          </p>
+          <p className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed">
+            Would you like the AI to remember this preference and automatically categorize similar expenses as <strong>{suggestedCategory}</strong> in the future?
+          </p>
+          <div className="flex gap-3 pt-2">
+            <button
+              onClick={() => handleConfirmRule(false)}
+              disabled={isSubmitting}
+              className="flex-[1] py-2.5 px-4 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-900 dark:text-gray-50 rounded-xl font-medium transition-colors disabled:opacity-70 text-sm"
+            >
+              No, just this once
+            </button>
+            <button
+              onClick={() => handleConfirmRule(true)}
+              disabled={isSubmitting}
+              className="flex-[1.5] py-2.5 px-4 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-medium transition-colors flex items-center justify-center gap-2 disabled:opacity-70 text-sm shadow-sm hover:shadow"
+            >
+              {isSubmitting ? <><Loader2 className="w-4 h-4 animate-spin" /> Saving...</> : 'Yes, remember this'}
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (suggestedCategory !== null) {
+    return (
+      <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-800 p-6 transition-colors duration-200">
+        <h2 className="text-lg font-semibold mb-4 flex items-center gap-2 text-gray-900 dark:text-gray-50">
+          <Sparkles className="w-5 h-5 text-indigo-600 dark:text-indigo-500" />
+          Confirm Category
+        </h2>
+        <div className="space-y-4">
+          <div className="p-4 bg-gray-50 dark:bg-gray-800/50 rounded-xl space-y-2">
+            <p className="text-sm text-gray-600 dark:text-gray-400"><span className="font-medium text-gray-900 dark:text-gray-100">Description:</span> {description}</p>
+            <p className="text-sm text-gray-600 dark:text-gray-400"><span className="font-medium text-gray-900 dark:text-gray-100">Amount:</span> ₹{amount}</p>
+            <p className="text-sm text-gray-600 dark:text-gray-400"><span className="font-medium text-gray-900 dark:text-gray-100">{frequency === 'none' ? 'Date:' : 'Start Date:'}</span> {date}</p>
+            {frequency !== 'none' && (
+              <p className="text-sm text-gray-600 dark:text-gray-400"><span className="font-medium text-gray-900 dark:text-gray-100">Repeat:</span> <span className="capitalize">{frequency}</span></p>
+            )}
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">AI Suggested Category (Edit to Correct)</label>
+            <select
+              value={suggestedCategory}
+              onChange={(e) => setSuggestedCategory(e.target.value)}
+              className="w-full px-4 py-2 bg-white dark:bg-gray-950 border border-gray-200 dark:border-gray-700 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all text-gray-900 dark:text-gray-50"
+            >
+              {Object.keys(CATEGORY_COLORS).map((cat) => (
+                <option key={cat} value={cat}>{cat}</option>
+              ))}
+            </select>
+            <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
+              Correcting categories helps the AI learn your habits for future expenses!
+            </p>
+          </div>
+          <div className="flex gap-3 pt-2">
+            <button
+              onClick={() => { setSuggestedCategory(null); setOriginalAiCategory(null); }}
+              disabled={isSubmitting}
+              className="flex-[1] py-2.5 px-4 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-900 dark:text-gray-50 rounded-xl font-medium transition-colors disabled:opacity-70"
+            >
+              Back
+            </button>
+            <button
+              onClick={handleConfirmNext}
+              disabled={isSubmitting}
+              className="flex-[2] py-2.5 px-4 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-medium transition-colors flex items-center justify-center gap-2 disabled:opacity-70"
+            >
+              {isSubmitting ? <><Loader2 className="w-4 h-4 animate-spin" /> Adding...</> : 'Confirm'}
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-800 p-6 transition-colors duration-200">
       <h2 className="text-lg font-semibold mb-4 flex items-center gap-2 text-gray-900 dark:text-gray-50">
         <Plus className="w-5 h-5 text-blue-600 dark:text-blue-500" />
         Add Expense
       </h2>
-      <form onSubmit={handleSubmit} className="space-y-4">
+      <form onSubmit={handleAnalyze} className="space-y-4">
         <div>
           <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Description</label>
           <input
@@ -383,9 +543,9 @@ function ExpenseForm({ userId }: { userId: string }) {
           className="w-full py-2.5 px-4 bg-gray-900 dark:bg-blue-600 hover:bg-gray-800 dark:hover:bg-blue-700 text-white rounded-xl font-medium transition-colors flex items-center justify-center gap-2 disabled:opacity-70"
         >
           {isSubmitting ? (
-            <><Loader2 className="w-4 h-4 animate-spin" /> Processing with AI...</>
+            <><Loader2 className="w-4 h-4 animate-spin" /> Analyzing...</>
           ) : (
-            'Add Expense'
+            <><Sparkles className="w-4 h-4" /> Analyze & Review</>
           )}
         </button>
       </form>
@@ -686,24 +846,39 @@ function AIInsights({ expenses }: { expenses: Expense[] }) {
 
       {insights && (
         <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
-          <div className="bg-white/60 dark:bg-gray-900/60 backdrop-blur-sm rounded-xl p-5 border border-indigo-100/50 dark:border-indigo-800/50">
-            <h3 className="text-sm font-semibold text-indigo-900 dark:text-indigo-100 mb-2">Spending Analysis</h3>
-            <p className="text-sm text-indigo-800 dark:text-indigo-200 leading-relaxed">{insights.insights}</p>
+          <div className="bg-white dark:bg-gray-900 rounded-2xl p-6 border border-indigo-100 dark:border-indigo-800/50 shadow-sm relative overflow-hidden group hover:border-indigo-200 dark:hover:border-indigo-700/80 transition-colors">
+            <div className="absolute -top-6 -right-6 p-4 opacity-5 dark:opacity-10 pointer-events-none group-hover:scale-110 transition-transform duration-500">
+              <Lightbulb className="w-32 h-32 text-indigo-600 dark:text-indigo-400" />
+            </div>
+            <div className="relative z-10">
+              <h3 className="text-sm font-semibold text-indigo-900 dark:text-indigo-100 mb-3 flex items-center gap-2">
+                <Activity className="w-4 h-4 text-indigo-500" />
+                Spending Analysis
+              </h3>
+              <p className="text-gray-700 dark:text-gray-300 leading-relaxed text-sm">
+                {insights.insights}
+              </p>
+            </div>
           </div>
           
           {insights.recommendations && insights.recommendations.length > 0 && (
             <div>
-              <h3 className="text-sm font-semibold text-indigo-900 dark:text-indigo-100 mb-3">Recommendations</h3>
-              <ul className="space-y-2">
+              <h3 className="text-sm font-semibold text-indigo-900 dark:text-indigo-100 mb-4 flex items-center gap-2">
+                <Target className="w-4 h-4 text-indigo-500" />
+                Actionable Recommendations
+              </h3>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 {insights.recommendations.map((rec, i) => (
-                  <li key={i} className="flex items-start gap-2 text-sm text-indigo-800 dark:text-indigo-200">
-                    <div className="w-5 h-5 rounded-full bg-indigo-100 dark:bg-indigo-900/50 text-indigo-600 dark:text-indigo-400 flex items-center justify-center flex-shrink-0 mt-0.5 text-xs font-bold">
-                      {i + 1}
+                  <div key={i} className="bg-white/60 dark:bg-gray-900/60 backdrop-blur-sm rounded-2xl p-5 border border-indigo-50 dark:border-indigo-800/30 hover:border-indigo-200 dark:hover:border-indigo-700/80 hover:shadow-md transition-all group flex gap-4">
+                    <div className="w-8 h-8 rounded-full bg-indigo-100 dark:bg-indigo-900/50 text-indigo-600 dark:text-indigo-400 flex items-center justify-center flex-shrink-0 group-hover:scale-110 transition-transform">
+                      <span className="text-sm font-bold">{i + 1}</span>
                     </div>
-                    <span className="leading-relaxed">{rec}</span>
-                  </li>
+                    <p className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed mt-1">
+                      {rec}
+                    </p>
+                  </div>
                 ))}
-              </ul>
+              </div>
             </div>
           )}
         </div>
