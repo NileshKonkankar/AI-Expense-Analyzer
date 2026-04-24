@@ -87,6 +87,31 @@
         }
       },
       "required": ["userId", "keyword", "category", "createdAt"]
+    },
+    "BudgetGoal": {
+      "title": "Budget Goal",
+      "description": "Monthly budget limit for a category",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string"
+        },
+        "category": {
+          "type": "string"
+        },
+        "amount": {
+          "type": "number",
+          "description": "The budget limit amount"
+        },
+        "month": {
+          "type": "string",
+          "description": "Month in YYYY-MM format"
+        },
+        "createdAt": {
+          "type": "timestamp"
+        }
+      },
+      "required": ["userId", "category", "amount", "month", "createdAt"]
     }
   },
   "firestore": {
@@ -107,6 +132,12 @@
         "$ref": "#/entities/CategoryRule"
       },
       "description": "Custom user rules for categorization"
+    },
+    "/categoryBudgets/{budgetId}": {
+      "schema": {
+        "$ref": "#/entities/BudgetGoal"
+      },
+      "description": "Monthly category budget goals"
     }
   }
 }
