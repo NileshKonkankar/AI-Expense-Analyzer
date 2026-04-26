@@ -4,7 +4,7 @@ import { db, auth, loginWithGoogle, logout } from './firebase';
 import { onAuthStateChanged } from 'firebase/auth';
 import { format } from 'date-fns';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RechartsTooltip, BarChart, Bar, XAxis, YAxis, CartesianGrid } from 'recharts';
-import { Plus, Trash2, LogOut, Loader2, Sparkles, TrendingUp, DollarSign, PieChart as PieChartIcon, Activity, Sun, Moon, Repeat, Lightbulb, Target, Filter, ChevronDown, ChevronUp, X } from 'lucide-react';
+import { Plus, Trash2, LogOut, Loader2, Sparkles, TrendingUp, DollarSign, PieChart as PieChartIcon, Activity, Sun, Moon, Repeat, Lightbulb, Target, Filter, ChevronDown, ChevronUp, X, Search } from 'lucide-react';
 import { cn } from './lib/utils';
 
 import { GoogleGenAI, Type } from "@google/genai";
@@ -584,16 +584,22 @@ function ExpenseList({ expenses }: { expenses: Expense[] }) {
   const [endDate, setEndDate] = useState('');
   const [minAmount, setMinAmount] = useState('');
   const [maxAmount, setMaxAmount] = useState('');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [expenseToDelete, setExpenseToDelete] = useState<string | null>(null);
 
-  const handleDelete = async (id: string) => {
+  const confirmDelete = async () => {
+    if (!expenseToDelete) return;
     try {
-      await deleteDoc(doc(db, 'expenses', id));
+      await deleteDoc(doc(db, 'expenses', expenseToDelete));
     } catch (error) {
       console.error("Error deleting expense:", error);
+    } finally {
+      setExpenseToDelete(null);
     }
   };
 
   const clearFilters = () => {
+    setSearchQuery('');
     setCategoryFilter('All');
     setStartDate('');
     setEndDate('');
@@ -602,6 +608,12 @@ function ExpenseList({ expenses }: { expenses: Expense[] }) {
   };
 
   const filteredExpenses = expenses.filter(expense => {
+    if (searchQuery) {
+      const q = searchQuery.toLowerCase();
+      if (!expense.description.toLowerCase().includes(q) && !expense.category.toLowerCase().includes(q)) {
+        return false;
+      }
+    }
     if (categoryFilter !== 'All' && expense.category !== categoryFilter) return false;
     if (startDate && expense.date < startDate) return false;
     if (endDate && expense.date > endDate) return false;
@@ -612,16 +624,30 @@ function ExpenseList({ expenses }: { expenses: Expense[] }) {
 
   return (
     <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-800 p-6 transition-colors duration-200">
-      <div className="flex items-center justify-between mb-4">
-        <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-50">Recent Expenses</h2>
-        <button
-          onClick={() => setShowFilters(!showFilters)}
-          className="p-2 text-gray-500 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 rounded-lg transition-colors flex items-center gap-1 text-sm font-medium"
-        >
-          <Filter className="w-4 h-4" />
-          Filter
-          {showFilters ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
-        </button>
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-4">
+        <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-50 whitespace-nowrap">Recent Expenses</h2>
+        <div className="flex items-center gap-2 w-full sm:w-auto">
+          <div className="relative flex-1 sm:w-48">
+            <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+              <Search className="h-4 w-4 text-gray-400" />
+            </div>
+            <input
+              type="text"
+              placeholder="Search expenses..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full pl-9 pr-3 py-1.5 text-sm bg-gray-50 dark:bg-gray-950 border border-gray-200 dark:border-gray-700 rounded-lg focus:ring-1 focus:ring-blue-500 outline-none text-gray-900 dark:text-gray-50 transition-colors"
+            />
+          </div>
+          <button
+            onClick={() => setShowFilters(!showFilters)}
+            className="p-1.5 sm:p-2 text-gray-500 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 rounded-lg transition-colors flex items-center gap-1 text-sm font-medium border border-transparent hover:border-indigo-100 dark:hover:border-indigo-800/50 flex-shrink-0"
+          >
+            <Filter className="w-4 h-4" />
+            <span className="hidden sm:inline">Filter</span>
+            {showFilters ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+          </button>
+        </div>
       </div>
 
       {showFilters && (
@@ -713,7 +739,7 @@ function ExpenseList({ expenses }: { expenses: Expense[] }) {
               <div className="flex items-center gap-3">
                 <span className="font-semibold text-gray-900 dark:text-gray-100">₹{expense.amount.toFixed(2)}</span>
                 <button
-                  onClick={() => handleDelete(expense.id)}
+                  onClick={() => setExpenseToDelete(expense.id)}
                   className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg opacity-0 group-hover:opacity-100 transition-all"
                 >
                   <Trash2 className="w-4 h-4" />
@@ -723,16 +749,48 @@ function ExpenseList({ expenses }: { expenses: Expense[] }) {
           ))}
         </div>
       )}
+
+      {expenseToDelete && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl w-full max-w-sm overflow-hidden animate-in zoom-in-95 duration-200 border border-gray-100 dark:border-gray-700">
+            <div className="p-6">
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-50 mb-2">Delete Expense</h3>
+              <p className="text-sm text-gray-500 dark:text-gray-400">
+                Are you sure you want to delete this expense? This action cannot be undone.
+              </p>
+            </div>
+            <div className="px-6 py-4 bg-gray-50 dark:bg-gray-800/50 flex justify-end gap-3 rounded-b-2xl border-t border-gray-100 dark:border-gray-700/50">
+              <button
+                onClick={() => setExpenseToDelete(null)}
+                className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-xl transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmDelete}
+                className="px-4 py-2 text-sm font-medium text-white bg-red-600 hover:bg-red-700 rounded-xl transition-colors shadow-sm"
+              >
+                Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
 
 function RecurringExpenseList({ recurringExpenses }: { recurringExpenses: RecurringExpense[] }) {
-  const handleDelete = async (id: string) => {
+  const [expenseToDelete, setExpenseToDelete] = useState<string | null>(null);
+
+  const confirmDelete = async () => {
+    if (!expenseToDelete) return;
     try {
-      await deleteDoc(doc(db, 'recurringExpenses', id));
+      await deleteDoc(doc(db, 'recurringExpenses', expenseToDelete));
     } catch (error) {
       console.error("Error deleting recurring expense:", error);
+    } finally {
+      setExpenseToDelete(null);
     }
   };
 
@@ -764,7 +822,7 @@ function RecurringExpenseList({ recurringExpenses }: { recurringExpenses: Recurr
             <div className="flex items-center gap-3">
               <span className="font-semibold text-gray-900 dark:text-gray-100">₹{expense.amount.toFixed(2)}</span>
               <button
-                onClick={() => handleDelete(expense.id)}
+                onClick={() => setExpenseToDelete(expense.id)}
                 className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg opacity-0 group-hover:opacity-100 transition-all"
                 title="Delete recurring expense"
               >
@@ -774,6 +832,33 @@ function RecurringExpenseList({ recurringExpenses }: { recurringExpenses: Recurr
           </div>
         ))}
       </div>
+
+      {expenseToDelete && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl w-full max-w-sm overflow-hidden animate-in zoom-in-95 duration-200 border border-gray-100 dark:border-gray-700">
+            <div className="p-6">
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-50 mb-2">Delete Recurring Expense</h3>
+              <p className="text-sm text-gray-500 dark:text-gray-400">
+                Are you sure you want to stop tracking this recurring expense? Future instances will not be logged.
+              </p>
+            </div>
+            <div className="px-6 py-4 bg-gray-50 dark:bg-gray-800/50 flex justify-end gap-3 rounded-b-2xl border-t border-gray-100 dark:border-gray-700/50">
+              <button
+                onClick={() => setExpenseToDelete(null)}
+                className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-xl transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmDelete}
+                className="px-4 py-2 text-sm font-medium text-white bg-red-600 hover:bg-red-700 rounded-xl transition-colors shadow-sm"
+              >
+                Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
