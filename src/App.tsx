@@ -308,6 +308,7 @@ function ExpenseForm({ userId, expenses, categoryRules }: { userId: string, expe
   const [suggestedCategory, setSuggestedCategory] = useState<string | null>(null);
   const [originalAiCategory, setOriginalAiCategory] = useState<string | null>(null);
   const [isAskingRuleConfirmation, setIsAskingRuleConfirmation] = useState(false);
+  const [ruleKeyword, setRuleKeyword] = useState('');
 
   const handleAnalyze = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -357,6 +358,10 @@ function ExpenseForm({ userId, expenses, categoryRules }: { userId: string, expe
 
   const handleConfirmNext = async () => {
     if (originalAiCategory && suggestedCategory !== originalAiCategory && !isAskingRuleConfirmation) {
+      // Suggest a good keyword for the rule (simplistic: first two words or full description)
+      const words = description.split(' ');
+      const suggestedKeyword = words.length > 2 ? words.slice(0, 2).join(' ') : description;
+      setRuleKeyword(suggestedKeyword);
       setIsAskingRuleConfirmation(true);
       return;
     }
@@ -397,7 +402,7 @@ function ExpenseForm({ userId, expenses, categoryRules }: { userId: string, expe
       if (saveRule) {
         await addDoc(collection(db, 'categoryRules'), {
           userId,
-          keyword: description, // Simplistic approach: map exact description
+          keyword: ruleKeyword || description,
           category,
           createdAt: serverTimestamp()
         });
@@ -408,6 +413,7 @@ function ExpenseForm({ userId, expenses, categoryRules }: { userId: string, expe
       setFrequency('none');
       setSuggestedCategory(null);
       setOriginalAiCategory(null);
+      setRuleKeyword('');
       setIsAskingRuleConfirmation(false);
     } catch (error) {
       console.error("Error adding expense:", error);
@@ -420,31 +426,50 @@ function ExpenseForm({ userId, expenses, categoryRules }: { userId: string, expe
   if (isAskingRuleConfirmation && suggestedCategory) {
     return (
       <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-800 p-6 transition-colors duration-200 animate-in fade-in zoom-in-95">
-        <h2 className="text-lg font-semibold mb-4 flex items-center gap-2 text-indigo-900 dark:text-indigo-100">
-          <Sparkles className="w-5 h-5 text-indigo-600 dark:text-indigo-500" />
-          Update AI Preferences?
-        </h2>
+        <div className="flex items-center gap-3 mb-4">
+          <div className="p-2 bg-indigo-100 dark:bg-indigo-900/40 rounded-xl">
+            <Sparkles className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />
+          </div>
+          <h2 className="text-lg font-semibold text-indigo-900 dark:text-indigo-100">
+            Train the AI
+          </h2>
+        </div>
+        
         <div className="space-y-4">
-          <p className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed">
-            You changed the category for <strong>"{description}"</strong> from <span className="text-gray-500 line-through">{originalAiCategory}</span> to <span className="font-semibold text-blue-600 dark:text-blue-400">{suggestedCategory}</span>.
-          </p>
-          <p className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed">
-            Would you like the AI to remember this preference and automatically categorize similar expenses as <strong>{suggestedCategory}</strong> in the future?
-          </p>
+          <div className="p-4 bg-gray-50 dark:bg-gray-800/50 rounded-xl space-y-3">
+            <p className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed">
+              You corrected the category from <span className="text-gray-500 line-through">{originalAiCategory}</span> to <span className="font-semibold text-indigo-600 dark:text-indigo-400">{suggestedCategory}</span>.
+            </p>
+            <p className="text-sm text-gray-600 dark:text-gray-400">
+              Create a rule so the AI automatically uses <span className="font-medium text-gray-900 dark:text-gray-100">{suggestedCategory}</span> for similar items.
+            </p>
+          </div>
+
+          <div>
+            <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5 uppercase tracking-wider">Rule Keyword (e.g., "Uber" instead of "Uber Bangalore")</label>
+            <input
+              type="text"
+              value={ruleKeyword}
+              onChange={(e) => setRuleKeyword(e.target.value)}
+              className="w-full px-4 py-2.5 bg-white dark:bg-gray-950 border border-indigo-100 dark:border-indigo-900/50 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none transition-all text-gray-900 dark:text-gray-50 font-medium"
+              placeholder="Enter keyword or phrase"
+            />
+          </div>
+
           <div className="flex gap-3 pt-2">
             <button
               onClick={() => handleConfirmRule(false)}
               disabled={isSubmitting}
-              className="flex-[1] py-2.5 px-4 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-900 dark:text-gray-50 rounded-xl font-medium transition-colors disabled:opacity-70 text-sm"
+              className="flex-1 py-2.5 px-4 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-900 dark:text-gray-50 rounded-xl font-medium transition-colors disabled:opacity-70 text-sm"
             >
-              No, just this once
+              Skip Rule
             </button>
             <button
               onClick={() => handleConfirmRule(true)}
               disabled={isSubmitting}
-              className="flex-[1.5] py-2.5 px-4 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-medium transition-colors flex items-center justify-center gap-2 disabled:opacity-70 text-sm shadow-sm hover:shadow"
+              className="flex-[1.5] py-2.5 px-4 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-medium transition-colors flex items-center justify-center gap-2 disabled:opacity-70 text-sm shadow-indigo-200 dark:shadow-none shadow-lg"
             >
-              {isSubmitting ? <><Loader2 className="w-4 h-4 animate-spin" /> Saving...</> : 'Yes, remember this'}
+              {isSubmitting ? <><Loader2 className="w-4 h-4 animate-spin" /> Saving...</> : 'Save Rule & Add'}
             </button>
           </div>
         </div>
@@ -886,13 +911,15 @@ function Dashboard({ expenses, isDarkMode, budgetGoals, userId }: { expenses: Ex
   const [budgetAmount, setBudgetAmount] = useState('');
   const [isSubmittingBudget, setIsSubmittingBudget] = useState(false);
 
+  const currentMonthBudgets = budgetGoals.filter(b => b.month === currentMonth);
+
   const handleSetBudget = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!budgetAmount) return;
     setIsSubmittingBudget(true);
 
     try {
-      const existingBudget = budgetGoals.find(b => b.category === budgetCategory && b.month === currentMonth);
+      const existingBudget = currentMonthBudgets.find(b => b.category === budgetCategory);
       if (existingBudget) {
         await updateDoc(doc(db, 'categoryBudgets', existingBudget.id), {
           amount: parseFloat(budgetAmount)
@@ -912,6 +939,15 @@ function Dashboard({ expenses, isDarkMode, budgetGoals, userId }: { expenses: Ex
       console.error("Error setting budget:", error);
     } finally {
       setIsSubmittingBudget(false);
+    }
+  };
+
+  const handleDeleteBudget = async (id: string) => {
+    if (!confirm("Are you sure you want to delete this budget goal?")) return;
+    try {
+      await deleteDoc(doc(db, 'categoryBudgets', id));
+    } catch (error) {
+      console.error("Error deleting budget:", error);
     }
   };
 
@@ -1044,33 +1080,62 @@ function Dashboard({ expenses, isDarkMode, budgetGoals, userId }: { expenses: Ex
           </button>
         </div>
 
-        {budgetGoals.length === 0 ? (
-          <p className="text-gray-500 dark:text-gray-400 text-sm py-4">No budgets set for this month.</p>
+        {currentMonthBudgets.length === 0 ? (
+          <div className="text-center py-8 bg-gray-50 dark:bg-gray-800/50 rounded-xl border border-dashed border-gray-200 dark:border-gray-700">
+            <p className="text-gray-500 dark:text-gray-400 text-sm mb-3">No budgets set for {format(new Date(), 'MMMM')}.</p>
+            <button
+              onClick={() => setShowBudgetModal(true)}
+              className="text-xs font-semibold py-1.5 px-3 bg-white dark:bg-gray-900 text-blue-600 dark:text-blue-400 border border-blue-200 dark:border-blue-900/50 rounded-lg hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors"
+            >
+              Get Started
+            </button>
+          </div>
         ) : (
-          <div className="space-y-5">
-            {budgetGoals.filter(b => b.month === currentMonth).map(budget => {
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-6">
+            {currentMonthBudgets.map(budget => {
               const spent = currentMonthCategoryData[budget.category] || 0;
               const percent = Math.min(100, Math.round((spent / budget.amount) * 100));
               const isOver = spent > budget.amount;
 
               return (
-                <div key={budget.id} className="space-y-2">
+                <div key={budget.id} className="space-y-2 group relative">
                   <div className="flex justify-between items-center text-sm">
-                    <span className="font-medium text-gray-900 dark:text-gray-100">{budget.category}</span>
-                    <span className="text-gray-500 dark:text-gray-400">
-                      <span className={isOver ? "text-red-500 font-semibold" : "text-gray-900 dark:text-gray-100 font-medium"}>
-                        ₹{spent.toFixed(0)}
-                      </span>
-                      {" / "}
-                      ₹{budget.amount.toFixed(0)}
+                    <span className="font-medium text-gray-900 dark:text-gray-100 flex items-center gap-2">
+                      <div className="w-2 h-2 rounded-full" style={{ backgroundColor: CATEGORY_COLORS[budget.category] || '#6B7280' }} />
+                      {budget.category}
                     </span>
+                    <div className="flex items-center gap-3">
+                      <span className="text-gray-500 dark:text-gray-400 text-xs">
+                        <span className={isOver ? "text-red-500 font-semibold" : "text-gray-900 dark:text-gray-100 font-medium"}>
+                          ₹{spent.toFixed(0)}
+                        </span>
+                        {" / "}
+                        ₹{budget.amount.toFixed(0)}
+                      </span>
+                      <button 
+                        onClick={() => handleDeleteBudget(budget.id)}
+                        className="text-gray-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all p-1"
+                        title="Delete budget"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
                   </div>
                   <div className="w-full bg-gray-100 dark:bg-gray-800 rounded-full h-2 overflow-hidden">
                     <div 
-                      className={`h-2 rounded-full transition-all duration-500 ${isOver ? 'bg-red-500' : 'bg-blue-500'}`}
-                      style={{ width: `${percent}%`, backgroundColor: !isOver ? (CATEGORY_COLORS[budget.category] || '#3B82F6') : undefined }}
+                      className={`h-2 rounded-full transition-all duration-700 ease-out ${isOver ? 'bg-red-500' : ''}`}
+                      style={{ 
+                        width: `${percent}%`, 
+                        backgroundColor: !isOver ? (CATEGORY_COLORS[budget.category] || '#3B82F6') : undefined,
+                        boxShadow: !isOver ? `0 0 8px ${(CATEGORY_COLORS[budget.category] || '#3B82F6')}44` : 'none'
+                      }}
                     />
                   </div>
+                  {isOver && (
+                    <p className="text-[10px] font-medium text-red-500 flex items-center gap-1 animate-pulse">
+                      Exceeded by ₹{(spent - budget.amount).toFixed(0)}
+                    </p>
+                  )}
                 </div>
               );
             })}
