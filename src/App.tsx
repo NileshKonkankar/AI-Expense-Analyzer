@@ -912,6 +912,9 @@ function Dashboard({ expenses, isDarkMode, budgetGoals, userId }: { expenses: Ex
   const [isSubmittingBudget, setIsSubmittingBudget] = useState(false);
 
   const currentMonthBudgets = budgetGoals.filter(b => b.month === currentMonth);
+  const totalMonthSpent = currentMonthExpenses.reduce((sum, exp) => sum + exp.amount, 0);
+  const totalMonthBudgetLimit = currentMonthBudgets.reduce((sum, b) => sum + b.amount, 0);
+  const totalBudgetPercent = totalMonthBudgetLimit > 0 ? Math.min(100, (totalMonthSpent / totalMonthBudgetLimit) * 100) : 0;
 
   const handleSetBudget = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -976,20 +979,38 @@ function Dashboard({ expenses, isDarkMode, budgetGoals, userId }: { expenses: Ex
   return (
     <div className="space-y-6">
       {/* Stats Row */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-800 p-6 transition-colors duration-200">
           <div className="flex items-center gap-3 mb-2 text-gray-500 dark:text-gray-400">
             <DollarSign className="w-5 h-5 text-blue-600 dark:text-blue-500" />
             <span className="font-medium text-sm">Total Spent</span>
           </div>
           <p className="text-3xl font-bold text-gray-900 dark:text-gray-50">₹{totalSpent.toFixed(2)}</p>
+          <p className="text-xs text-gray-500 mt-1">All time</p>
         </div>
         <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-800 p-6 transition-colors duration-200">
           <div className="flex items-center gap-3 mb-2 text-gray-500 dark:text-gray-400">
             <Activity className="w-5 h-5 text-green-600 dark:text-green-500" />
-            <span className="font-medium text-sm">Transactions</span>
+            <span className="font-medium text-sm">Monthly Spent</span>
           </div>
-          <p className="text-3xl font-bold text-gray-900 dark:text-gray-50">{expenses.length}</p>
+          <p className="text-3xl font-bold text-gray-900 dark:text-gray-50">₹{totalMonthSpent.toFixed(2)}</p>
+          <p className="text-xs text-gray-500 mt-1">{format(new Date(), 'MMMM yyyy')}</p>
+        </div>
+        <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-800 p-6 transition-colors duration-200">
+          <div className="flex items-center gap-3 mb-2 text-gray-500 dark:text-gray-400">
+            <Target className="w-5 h-5 text-indigo-600 dark:text-indigo-500" />
+            <span className="font-medium text-sm">Budget Progress</span>
+          </div>
+          <div className="flex items-end gap-2">
+            <p className="text-3xl font-bold text-gray-900 dark:text-gray-50">{totalBudgetPercent.toFixed(0)}%</p>
+            <p className="text-xs text-gray-500 mb-1">of total budget</p>
+          </div>
+          <div className="w-full bg-gray-100 dark:bg-gray-800 rounded-full h-1.5 mt-3 overflow-hidden">
+            <div 
+              className={cn("h-full transition-all duration-1000", totalBudgetPercent > 90 ? "bg-red-500" : "bg-indigo-500")}
+              style={{ width: `${totalBudgetPercent}%` }}
+            />
+          </div>
         </div>
         <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-800 p-6 transition-colors duration-200">
           <div className="flex items-center gap-3 mb-2 text-gray-500 dark:text-gray-400">
@@ -999,6 +1020,7 @@ function Dashboard({ expenses, isDarkMode, budgetGoals, userId }: { expenses: Ex
           <p className="text-xl font-bold text-gray-900 dark:text-gray-50 truncate">
             {pieData.length > 0 ? pieData[0].name : '-'}
           </p>
+          <p className="text-xs text-gray-500 mt-1">Highest spending</p>
         </div>
       </div>
 
@@ -1092,22 +1114,31 @@ function Dashboard({ expenses, isDarkMode, budgetGoals, userId }: { expenses: Ex
           </div>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-6">
-            {currentMonthBudgets.map(budget => {
-              const spent = currentMonthCategoryData[budget.category] || 0;
-              const percent = Math.min(100, Math.round((spent / budget.amount) * 100));
-              const isOver = spent > budget.amount;
-
-              return (
+            {currentMonthBudgets
+              .map(budget => {
+                const spent = currentMonthCategoryData[budget.category] || 0;
+                const percent = Math.min(100, Math.round((spent / budget.amount) * 100));
+                const usagePercent = (spent / budget.amount) * 100;
+                return { ...budget, spent, percent, usagePercent, isOver: spent > budget.amount };
+              })
+              .sort((a, b) => b.usagePercent - a.usagePercent)
+              .map(budget => (
                 <div key={budget.id} className="space-y-2 group relative">
                   <div className="flex justify-between items-center text-sm">
                     <span className="font-medium text-gray-900 dark:text-gray-100 flex items-center gap-2">
                       <div className="w-2 h-2 rounded-full" style={{ backgroundColor: CATEGORY_COLORS[budget.category] || '#6B7280' }} />
                       {budget.category}
+                      {budget.isOver && (
+                        <span className="flex h-2 w-2 relative">
+                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
+                          <span className="relative inline-flex rounded-full h-2 w-2 bg-red-500"></span>
+                        </span>
+                      )}
                     </span>
                     <div className="flex items-center gap-3">
                       <span className="text-gray-500 dark:text-gray-400 text-xs">
-                        <span className={isOver ? "text-red-500 font-semibold" : "text-gray-900 dark:text-gray-100 font-medium"}>
-                          ₹{spent.toFixed(0)}
+                        <span className={budget.isOver ? "text-red-500 font-semibold" : "text-gray-900 dark:text-gray-100 font-medium"}>
+                          ₹{budget.spent.toFixed(0)}
                         </span>
                         {" / "}
                         ₹{budget.amount.toFixed(0)}
@@ -1121,24 +1152,26 @@ function Dashboard({ expenses, isDarkMode, budgetGoals, userId }: { expenses: Ex
                       </button>
                     </div>
                   </div>
-                  <div className="w-full bg-gray-100 dark:bg-gray-800 rounded-full h-2 overflow-hidden">
+                  <div className="w-full bg-gray-100 dark:bg-gray-800 rounded-full h-2 overflow-hidden shadow-inner">
                     <div 
-                      className={`h-2 rounded-full transition-all duration-700 ease-out ${isOver ? 'bg-red-500' : ''}`}
+                      className={cn(
+                        "h-2 rounded-full transition-all duration-1000 ease-out",
+                        budget.isOver ? 'bg-red-500 shadow-[0_0_8px_#ef4444]' : ''
+                      )}
                       style={{ 
-                        width: `${percent}%`, 
-                        backgroundColor: !isOver ? (CATEGORY_COLORS[budget.category] || '#3B82F6') : undefined,
-                        boxShadow: !isOver ? `0 0 8px ${(CATEGORY_COLORS[budget.category] || '#3B82F6')}44` : 'none'
+                        width: `${budget.percent}%`, 
+                        backgroundColor: !budget.isOver ? (CATEGORY_COLORS[budget.category] || '#3B82F6') : undefined,
+                        boxShadow: !budget.isOver ? `0 0 8px ${(CATEGORY_COLORS[budget.category] || '#3B82F6')}44` : undefined
                       }}
                     />
                   </div>
-                  {isOver && (
-                    <p className="text-[10px] font-medium text-red-500 flex items-center gap-1 animate-pulse">
-                      Exceeded by ₹{(spent - budget.amount).toFixed(0)}
+                  {budget.isOver && (
+                    <p className="text-[10px] font-bold text-red-500 flex items-center gap-1 uppercase tracking-tight">
+                      Alert: Budget exceeded by ₹{(budget.spent - budget.amount).toFixed(0)}
                     </p>
                   )}
                 </div>
-              );
-            })}
+              ))}
           </div>
         )}
 
