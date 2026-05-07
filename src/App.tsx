@@ -2,9 +2,9 @@ import React, { useState, useEffect } from 'react';
 import { collection, query, where, onSnapshot, addDoc, deleteDoc, updateDoc, doc, serverTimestamp, orderBy } from 'firebase/firestore';
 import { db, auth, loginWithGoogle, logout } from './firebase';
 import { onAuthStateChanged } from 'firebase/auth';
-import { format } from 'date-fns';
+import { format, addMonths, subMonths, parse } from 'date-fns';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RechartsTooltip, BarChart, Bar, XAxis, YAxis, CartesianGrid } from 'recharts';
-import { Plus, Trash2, LogOut, Loader2, Sparkles, TrendingUp, DollarSign, PieChart as PieChartIcon, Activity, Sun, Moon, Repeat, Lightbulb, Target, Filter, ChevronDown, ChevronUp, X, Search } from 'lucide-react';
+import { Plus, Trash2, LogOut, Loader2, Sparkles, TrendingUp, DollarSign, PieChart as PieChartIcon, Activity, Sun, Moon, Repeat, Lightbulb, Target, Filter, ChevronDown, ChevronUp, X, Search, ChevronLeft, ChevronRight, Calendar, Bell } from 'lucide-react';
 import { cn } from './lib/utils';
 
 import { GoogleGenAI, Type } from "@google/genai";
@@ -290,7 +290,7 @@ export default function App() {
 
           {/* Right Column: Dashboard & Insights */}
           <div className="lg:col-span-2 space-y-8">
-            <Dashboard expenses={expenses} isDarkMode={isDarkMode} budgetGoals={budgetGoals} userId={user.uid} />
+            <Dashboard expenses={expenses} recurringExpenses={recurringExpenses} isDarkMode={isDarkMode} budgetGoals={budgetGoals} userId={user.uid} />
             <AIInsights expenses={expenses} />
           </div>
         </div>
@@ -888,19 +888,15 @@ function RecurringExpenseList({ recurringExpenses }: { recurringExpenses: Recurr
   );
 }
 
-function Dashboard({ expenses, isDarkMode, budgetGoals, userId }: { expenses: Expense[], isDarkMode: boolean, budgetGoals: BudgetGoal[], userId: string }) {
-  const currentMonth = format(new Date(), 'yyyy-MM');
+function Dashboard({ expenses, recurringExpenses, isDarkMode, budgetGoals, userId }: { expenses: Expense[], recurringExpenses: RecurringExpense[], isDarkMode: boolean, budgetGoals: BudgetGoal[], userId: string }) {
+  const [selectedDashboardMonth, setSelectedDashboardMonth] = useState(format(new Date(), 'yyyy-MM'));
+  const currentMonthStr = format(new Date(), 'yyyy-MM');
+  
   const totalSpent = expenses.reduce((sum, exp) => sum + exp.amount, 0);
   
-  // Group by category for all time (for pie chart)
-  const categoryData = expenses.reduce((acc, exp) => {
-    acc[exp.category] = (acc[exp.category] || 0) + exp.amount;
-    return acc;
-  }, {} as Record<string, number>);
-
-  // Group by category for current month ONLY (for budget progress)
-  const currentMonthExpenses = expenses.filter(exp => exp.date.startsWith(currentMonth));
-  const currentMonthCategoryData = currentMonthExpenses.reduce((acc, exp) => {
+  // Group by category for selected month
+  const monthExpenses = expenses.filter(exp => exp.date.startsWith(selectedDashboardMonth));
+  const monthCategoryData = monthExpenses.reduce((acc, exp) => {
     acc[exp.category] = (acc[exp.category] || 0) + exp.amount;
     return acc;
   }, {} as Record<string, number>);
@@ -911,10 +907,26 @@ function Dashboard({ expenses, isDarkMode, budgetGoals, userId }: { expenses: Ex
   const [budgetAmount, setBudgetAmount] = useState('');
   const [isSubmittingBudget, setIsSubmittingBudget] = useState(false);
 
-  const currentMonthBudgets = budgetGoals.filter(b => b.month === currentMonth);
-  const totalMonthSpent = currentMonthExpenses.reduce((sum, exp) => sum + exp.amount, 0);
-  const totalMonthBudgetLimit = currentMonthBudgets.reduce((sum, b) => sum + b.amount, 0);
+  const monthBudgets = budgetGoals.filter(b => b.month === selectedDashboardMonth);
+  const totalMonthSpent = monthExpenses.reduce((sum, exp) => sum + exp.amount, 0);
+  const totalMonthBudgetLimit = monthBudgets.reduce((sum, b) => sum + b.amount, 0);
   const totalBudgetPercent = totalMonthBudgetLimit > 0 ? Math.min(100, (totalMonthSpent / totalMonthBudgetLimit) * 100) : 0;
+
+  // Upcoming recurring expenses alerts
+  const today = new Date();
+  const next7Days = new Date();
+  next7Days.setDate(today.getDate() + 7);
+  const todayStr = format(today, 'yyyy-MM-dd');
+  const nextWeekStr = format(next7Days, 'yyyy-MM-dd');
+
+  const upcomingExpenses = recurringExpenses.filter(re => re.nextDueDate >= todayStr && re.nextDueDate <= nextWeekStr)
+    .sort((a, b) => a.nextDueDate.localeCompare(b.nextDueDate));
+
+  const navigateMonth = (direction: number) => {
+    const currentMonthDate = parse(selectedDashboardMonth, 'yyyy-MM', new Date());
+    const nextMonthDate = direction > 0 ? addMonths(currentMonthDate, 1) : subMonths(currentMonthDate, 1);
+    setSelectedDashboardMonth(format(nextMonthDate, 'yyyy-MM'));
+  };
 
   const handleSetBudget = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -922,7 +934,7 @@ function Dashboard({ expenses, isDarkMode, budgetGoals, userId }: { expenses: Ex
     setIsSubmittingBudget(true);
 
     try {
-      const existingBudget = currentMonthBudgets.find(b => b.category === budgetCategory);
+      const existingBudget = monthBudgets.find(b => b.category === budgetCategory);
       if (existingBudget) {
         await updateDoc(doc(db, 'categoryBudgets', existingBudget.id), {
           amount: parseFloat(budgetAmount)
@@ -932,7 +944,7 @@ function Dashboard({ expenses, isDarkMode, budgetGoals, userId }: { expenses: Ex
           userId,
           category: budgetCategory,
           amount: parseFloat(budgetAmount),
-          month: currentMonth,
+          month: selectedDashboardMonth,
           createdAt: serverTimestamp()
         });
       }
@@ -954,7 +966,7 @@ function Dashboard({ expenses, isDarkMode, budgetGoals, userId }: { expenses: Ex
     }
   };
 
-  const pieData = Object.entries(categoryData).map(([name, value]) => ({ name, value })).sort((a, b) => b.value - a.value);
+  const pieData = Object.entries(monthCategoryData).map(([name, value]) => ({ name, value })).sort((a, b) => b.value - a.value);
 
   // Group by date (last 7 days)
   const last7Days = Array.from({ length: 7 }, (_, i) => {
@@ -978,6 +990,71 @@ function Dashboard({ expenses, isDarkMode, budgetGoals, userId }: { expenses: Ex
 
   return (
     <div className="space-y-6">
+      {/* Upcoming Alerts */}
+      {upcomingExpenses.length > 0 && (
+        <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-100 dark:border-amber-800 rounded-2xl p-4 flex items-start gap-4 transition-colors">
+          <div className="p-2 bg-amber-100 dark:bg-amber-900/40 rounded-xl">
+            <Bell className="w-5 h-5 text-amber-600 dark:text-amber-400" />
+          </div>
+          <div className="flex-1">
+            <h3 className="font-semibold text-amber-900 dark:text-amber-100 text-sm">Upcoming Recurring Expenses</h3>
+            <div className="mt-2 space-y-2">
+              {upcomingExpenses.map(expense => (
+                <div key={expense.id} className="flex items-center justify-between text-xs text-amber-800 dark:text-amber-200">
+                  <span>
+                    <span className="font-medium mr-1 text-amber-900 dark:text-amber-50">{expense.description}</span>
+                    due on {expense.nextDueDate}
+                  </span>
+                  <span className="font-bold">₹{expense.amount.toFixed(2)}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Month Navigation */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white dark:bg-gray-900 p-4 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-800 transition-colors">
+        <div className="flex items-center gap-3">
+          <div className="p-2 bg-indigo-50 dark:bg-indigo-900/40 rounded-xl">
+            <Calendar className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />
+          </div>
+          <div>
+            <h2 className="text-lg font-bold text-gray-900 dark:text-gray-50 leading-tight">
+              {format(parse(selectedDashboardMonth, 'yyyy-MM', new Date()), 'MMMM yyyy')}
+            </h2>
+            <p className="text-[10px] text-gray-500 uppercase tracking-widest font-semibold">Monthly Performance</p>
+          </div>
+        </div>
+        <div className="flex items-center gap-2 self-end sm:self-auto">
+          <button 
+            onClick={() => navigateMonth(-1)}
+            className="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-xl transition-colors text-gray-600 dark:text-gray-400 border border-gray-100 dark:border-gray-800"
+            title="Previous Month"
+          >
+            <ChevronLeft className="w-5 h-5" />
+          </button>
+          <button 
+            onClick={() => setSelectedDashboardMonth(currentMonthStr)}
+            className={cn(
+              "px-4 py-2 text-xs font-bold rounded-xl transition-all border",
+              selectedDashboardMonth === currentMonthStr 
+                ? "bg-indigo-600 text-white border-indigo-600 shadow-lg shadow-indigo-200 dark:shadow-none"
+                : "bg-white dark:bg-gray-900 text-gray-600 dark:text-gray-400 border-gray-100 dark:border-gray-800 hover:bg-gray-50"
+            )}
+          >
+            Current Month
+          </button>
+          <button 
+            onClick={() => navigateMonth(1)}
+            className="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-xl transition-colors text-gray-600 dark:text-gray-400 border border-gray-100 dark:border-gray-800"
+            title="Next Month"
+          >
+            <ChevronRight className="w-5 h-5" />
+          </button>
+        </div>
+      </div>
+
       {/* Stats Row */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-800 p-6 transition-colors duration-200">
@@ -994,7 +1071,7 @@ function Dashboard({ expenses, isDarkMode, budgetGoals, userId }: { expenses: Ex
             <span className="font-medium text-sm">Monthly Spent</span>
           </div>
           <p className="text-3xl font-bold text-gray-900 dark:text-gray-50">₹{totalMonthSpent.toFixed(2)}</p>
-          <p className="text-xs text-gray-500 mt-1">{format(new Date(), 'MMMM yyyy')}</p>
+          <p className="text-xs text-gray-500 mt-1">{format(parse(selectedDashboardMonth, 'yyyy-MM', new Date()), 'MMMM yyyy')}</p>
         </div>
         <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-800 p-6 transition-colors duration-200">
           <div className="flex items-center gap-3 mb-2 text-gray-500 dark:text-gray-400">
@@ -1092,7 +1169,7 @@ function Dashboard({ expenses, isDarkMode, budgetGoals, userId }: { expenses: Ex
         <div className="flex items-center justify-between mb-6">
           <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-50 flex items-center gap-2">
             <Target className="w-4 h-4 text-gray-500 dark:text-gray-400" />
-            Monthly Budgets ({format(new Date(), 'MMMM')})
+            Monthly Budgets ({format(parse(selectedDashboardMonth, 'yyyy-MM', new Date()), 'MMMM')})
           </h3>
           <button
             onClick={() => setShowBudgetModal(true)}
@@ -1102,9 +1179,9 @@ function Dashboard({ expenses, isDarkMode, budgetGoals, userId }: { expenses: Ex
           </button>
         </div>
 
-        {currentMonthBudgets.length === 0 ? (
+        {monthBudgets.length === 0 ? (
           <div className="text-center py-8 bg-gray-50 dark:bg-gray-800/50 rounded-xl border border-dashed border-gray-200 dark:border-gray-700">
-            <p className="text-gray-500 dark:text-gray-400 text-sm mb-3">No budgets set for {format(new Date(), 'MMMM')}.</p>
+            <p className="text-gray-500 dark:text-gray-400 text-sm mb-3">No budgets set for {format(parse(selectedDashboardMonth, 'yyyy-MM', new Date()), 'MMMM')}.</p>
             <button
               onClick={() => setShowBudgetModal(true)}
               className="text-xs font-semibold py-1.5 px-3 bg-white dark:bg-gray-900 text-blue-600 dark:text-blue-400 border border-blue-200 dark:border-blue-900/50 rounded-lg hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors"
@@ -1114,9 +1191,9 @@ function Dashboard({ expenses, isDarkMode, budgetGoals, userId }: { expenses: Ex
           </div>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-6">
-            {currentMonthBudgets
+            {monthBudgets
               .map(budget => {
-                const spent = currentMonthCategoryData[budget.category] || 0;
+                const spent = monthCategoryData[budget.category] || 0;
                 const percent = Math.min(100, Math.round((spent / budget.amount) * 100));
                 const usagePercent = (spent / budget.amount) * 100;
                 return { ...budget, spent, percent, usagePercent, isOver: spent > budget.amount };
