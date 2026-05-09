@@ -285,6 +285,7 @@ export default function App() {
           <div className="lg:col-span-1 space-y-8">
             <ExpenseForm userId={user.uid} expenses={expenses} categoryRules={categoryRules} />
             <ExpenseList expenses={expenses} />
+            <CategoryRulesList categoryRules={categoryRules} userId={user.uid} />
             <RecurringExpenseList recurringExpenses={recurringExpenses} />
           </div>
 
@@ -316,6 +317,19 @@ function ExpenseForm({ userId, expenses, categoryRules }: { userId: string, expe
 
     setIsSubmitting(true);
     try {
+      // 1. Check for hard matches in custom rules first
+      const lowerDesc = description.toLowerCase();
+      const matchedRule = categoryRules.find(rule => 
+        lowerDesc.includes(rule.keyword.toLowerCase())
+      );
+
+      if (matchedRule) {
+        setSuggestedCategory(matchedRule.category);
+        setOriginalAiCategory(matchedRule.category);
+        setIsSubmitting(false);
+        return;
+      }
+
       let contextStr = '';
       if (categoryRules.length > 0) {
         contextStr += `User's custom categorization rules:\n${categoryRules.map(r => `- If expense description involves "${r.keyword}", strictly categorize as -> ${r.category}`).join('\n')}\n\n`;
@@ -799,6 +813,124 @@ function ExpenseList({ expenses }: { expenses: Expense[] }) {
               </button>
             </div>
           </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function CategoryRulesList({ categoryRules, userId }: { categoryRules: CategoryRule[], userId: string }) {
+  const [showAddForm, setShowAddForm] = useState(false);
+  const [keyword, setKeyword] = useState('');
+  const [category, setCategory] = useState('Food');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const handleAddRule = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!keyword) return;
+    setIsSubmitting(true);
+    try {
+      await addDoc(collection(db, 'categoryRules'), {
+        userId,
+        keyword,
+        category,
+        createdAt: serverTimestamp()
+      });
+      setKeyword('');
+      setShowAddForm(false);
+    } catch (error) {
+      console.error("Error adding rule:", error);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleDeleteRule = async (id: string) => {
+    if (!confirm("Delete this rule? The AI will no longer use it for categorization.")) return;
+    try {
+      await deleteDoc(doc(db, 'categoryRules', id));
+    } catch (error) {
+      console.error("Error deleting rule:", error);
+    }
+  };
+
+  return (
+    <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-800 p-6 transition-colors duration-200">
+      <div className="flex items-center justify-between mb-4">
+        <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-50 flex items-center gap-2">
+          <Filter className="w-5 h-5 text-purple-600 dark:text-purple-500" />
+          Categorization Rules
+        </h2>
+        <button 
+          onClick={() => setShowAddForm(!showAddForm)}
+          className="p-1.5 text-gray-500 hover:text-purple-600 hover:bg-purple-50 dark:hover:bg-purple-900/20 rounded-lg transition-colors"
+          title="Add custom rule"
+        >
+          {showAddForm ? <X className="w-5 h-5" /> : <Plus className="w-5 h-5" />}
+        </button>
+      </div>
+
+      {showAddForm && (
+        <form onSubmit={handleAddRule} className="mb-6 p-4 bg-purple-50/50 dark:bg-purple-950/20 rounded-xl space-y-3 animate-in fade-in slide-in-from-top-2">
+          <div>
+            <label className="block text-xs font-medium text-purple-700 dark:text-purple-300 mb-1 uppercase tracking-wider">If description contains:</label>
+            <input
+              type="text"
+              value={keyword}
+              onChange={(e) => setKeyword(e.target.value)}
+              placeholder="e.g., Starbucks, Amazon"
+              className="w-full px-3 py-1.5 text-sm bg-white dark:bg-gray-950 border border-purple-100 dark:border-purple-900/50 rounded-lg focus:ring-1 focus:ring-purple-500 outline-none text-gray-900 dark:text-gray-50"
+              required
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-purple-700 dark:text-purple-300 mb-1 uppercase tracking-wider">Categorize as:</label>
+            <select
+              value={category}
+              onChange={(e) => setCategory(e.target.value)}
+              className="w-full px-3 py-1.5 text-sm bg-white dark:bg-gray-950 border border-purple-100 dark:border-purple-900/50 rounded-lg focus:ring-1 focus:ring-purple-500 outline-none text-gray-900 dark:text-gray-50"
+            >
+              {Object.keys(CATEGORY_COLORS).map(cat => (
+                <option key={cat} value={cat}>{cat}</option>
+              ))}
+            </select>
+          </div>
+          <button
+            type="submit"
+            disabled={isSubmitting}
+            className="w-full py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg text-xs font-bold transition-all shadow-sm"
+          >
+            {isSubmitting ? 'Saving...' : 'Add AI Rule'}
+          </button>
+        </form>
+      )}
+
+      {categoryRules.length === 0 ? (
+        <div className="text-center py-6 bg-gray-50 dark:bg-gray-800/30 rounded-xl border border-dashed border-gray-200 dark:border-gray-700">
+          <p className="text-xs text-gray-500 dark:text-gray-400">No custom rules yet. Train the AI or add one above!</p>
+        </div>
+      ) : (
+        <div className="space-y-3 max-h-[200px] overflow-y-auto pr-2">
+          {categoryRules.map((rule) => (
+            <div key={rule.id} className="flex items-center justify-between p-2.5 bg-gray-50/50 dark:bg-gray-800/30 hover:bg-white dark:hover:bg-gray-800 rounded-xl border border-transparent hover:border-gray-100 dark:hover:border-gray-700 transition-all group">
+              <div className="flex items-center gap-3">
+                <div className="px-2 py-1 bg-purple-100 dark:bg-purple-900/40 text-purple-700 dark:text-purple-300 rounded text-[10px] font-bold uppercase tracking-tight">
+                  IF: "{rule.keyword}"
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <div className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: CATEGORY_COLORS[rule.category] || '#6B7280' }} />
+                  <span className="text-sm font-medium text-gray-900 dark:text-gray-100">{rule.category}</span>
+                </div>
+              </div>
+              <button
+                onClick={() => handleDeleteRule(rule.id)}
+                className="p-1.5 text-gray-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all"
+                title="Remove rule"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          ))}
         </div>
       )}
     </div>
