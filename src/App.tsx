@@ -2,8 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { collection, query, where, onSnapshot, addDoc, deleteDoc, updateDoc, doc, serverTimestamp, orderBy } from 'firebase/firestore';
 import { db, auth, loginWithGoogle, logout } from './firebase';
 import { onAuthStateChanged } from 'firebase/auth';
-import { format, addMonths, subMonths, parse } from 'date-fns';
-import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RechartsTooltip, BarChart, Bar, XAxis, YAxis, CartesianGrid } from 'recharts';
+import { format, addMonths, subMonths, parse, startOfMonth, endOfMonth, eachDayOfInterval } from 'date-fns';
+import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RechartsTooltip, BarChart, Bar, XAxis, YAxis, CartesianGrid, AreaChart, Area } from 'recharts';
 import { Plus, Trash2, LogOut, Loader2, Sparkles, TrendingUp, DollarSign, PieChart as PieChartIcon, Activity, Sun, Moon, Repeat, Lightbulb, Target, Filter, ChevronDown, ChevronUp, X, Search, ChevronLeft, ChevronRight, Calendar, Bell } from 'lucide-react';
 import { cn } from './lib/utils';
 
@@ -1120,6 +1120,27 @@ function Dashboard({ expenses, recurringExpenses, isDarkMode, budgetGoals, userI
     boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)'
   };
 
+  // Group by date for the selected month to show daily pattern
+  const selectedDate = parse(selectedDashboardMonth, 'yyyy-MM', new Date());
+  const daysInSelectedMonth = eachDayOfInterval({ 
+    start: startOfMonth(selectedDate), 
+    end: endOfMonth(selectedDate) 
+  });
+
+  const monthDailyAggregated = monthExpenses.reduce((acc, exp) => {
+    acc[exp.date] = (acc[exp.date] || 0) + exp.amount;
+    return acc;
+  }, {} as Record<string, number>);
+
+  const monthDailyData = daysInSelectedMonth.map(day => {
+    const dateStr = format(day, 'yyyy-MM-dd');
+    return {
+      day: format(day, 'd'),
+      date: format(day, 'MMM dd'),
+      amount: monthDailyAggregated[dateStr] || 0
+    };
+  });
+
   return (
     <div className="space-y-6">
       {/* Upcoming Alerts */}
@@ -1293,6 +1314,54 @@ function Dashboard({ expenses, recurringExpenses, isDarkMode, budgetGoals, userI
               </BarChart>
             </ResponsiveContainer>
           </div>
+        </div>
+      </div>
+
+      {/* Monthly Daily Pattern Chart */}
+      <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-800 p-6 transition-colors duration-200">
+        <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-50 mb-4 flex items-center gap-2">
+          <Activity className="w-4 h-4 text-gray-500 dark:text-gray-400" />
+          Monthly Spending Pattern ({format(selectedDate, 'MMMM')})
+        </h3>
+        <div className="h-64 w-full">
+          <ResponsiveContainer width="100%" height="100%">
+            <AreaChart data={monthDailyData}>
+              <defs>
+                <linearGradient id="colorAmount" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%" stopColor="#6366f1" stopOpacity={0.3}/>
+                  <stop offset="95%" stopColor="#6366f1" stopOpacity={0}/>
+                </linearGradient>
+              </defs>
+              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={isDarkMode ? '#374151' : '#E5E7EB'} />
+              <XAxis 
+                dataKey="day" 
+                axisLine={false} 
+                tickLine={false} 
+                tick={{ fontSize: 10, fill: isDarkMode ? '#9CA3AF' : '#6B7280' }} 
+                interval={2}
+              />
+              <YAxis 
+                axisLine={false} 
+                tickLine={false} 
+                tick={{ fontSize: 10, fill: isDarkMode ? '#9CA3AF' : '#6B7280' }} 
+                tickFormatter={(val) => `₹${val}`} 
+              />
+              <RechartsTooltip 
+                formatter={(value: number) => [`₹${value.toFixed(2)}`, 'Daily Spent']}
+                labelFormatter={(label) => `Day ${label}`}
+                contentStyle={tooltipStyle}
+                itemStyle={{ color: isDarkMode ? '#F9FAFB' : '#111827' }}
+              />
+              <Area 
+                type="monotone" 
+                dataKey="amount" 
+                stroke="#6366f1" 
+                fillOpacity={1} 
+                fill="url(#colorAmount)" 
+                strokeWidth={2}
+              />
+            </AreaChart>
+          </ResponsiveContainer>
         </div>
       </div>
 
