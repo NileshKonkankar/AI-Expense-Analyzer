@@ -824,6 +824,7 @@ function CategoryRulesList({ categoryRules, userId }: { categoryRules: CategoryR
   const [keyword, setKeyword] = useState('');
   const [category, setCategory] = useState('Food');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [ruleToDelete, setRuleToDelete] = useState<string | null>(null);
 
   const handleAddRule = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -845,12 +846,14 @@ function CategoryRulesList({ categoryRules, userId }: { categoryRules: CategoryR
     }
   };
 
-  const handleDeleteRule = async (id: string) => {
-    if (!confirm("Delete this rule? The AI will no longer use it for categorization.")) return;
+  const confirmDeleteRule = async () => {
+    if (!ruleToDelete) return;
     try {
-      await deleteDoc(doc(db, 'categoryRules', id));
+      await deleteDoc(doc(db, 'categoryRules', ruleToDelete));
     } catch (error) {
       console.error("Error deleting rule:", error);
+    } finally {
+      setRuleToDelete(null);
     }
   };
 
@@ -923,7 +926,7 @@ function CategoryRulesList({ categoryRules, userId }: { categoryRules: CategoryR
                 </div>
               </div>
               <button
-                onClick={() => handleDeleteRule(rule.id)}
+                onClick={() => setRuleToDelete(rule.id)}
                 className="p-1.5 text-gray-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all"
                 title="Remove rule"
               >
@@ -931,6 +934,33 @@ function CategoryRulesList({ categoryRules, userId }: { categoryRules: CategoryR
               </button>
             </div>
           ))}
+        </div>
+      )}
+
+      {ruleToDelete && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl w-full max-w-sm overflow-hidden animate-in zoom-in-95 duration-200 border border-gray-100 dark:border-gray-700">
+            <div className="p-6">
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-50 mb-2">Delete AI Rule</h3>
+              <p className="text-sm text-gray-500 dark:text-gray-400">
+                Are you sure you want to delete this rule? The AI will no longer use it for automatic categorization.
+              </p>
+            </div>
+            <div className="px-6 py-4 bg-gray-50 dark:bg-gray-800/50 flex justify-end gap-3 rounded-b-2xl border-t border-gray-100 dark:border-gray-700/50">
+              <button
+                onClick={() => setRuleToDelete(null)}
+                className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-xl transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmDeleteRule}
+                className="px-4 py-2 text-sm font-medium text-white bg-red-600 hover:bg-red-700 rounded-xl transition-colors shadow-sm"
+              >
+                Delete Rule
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>
@@ -1038,6 +1068,7 @@ function Dashboard({ expenses, recurringExpenses, isDarkMode, budgetGoals, userI
   const [budgetCategory, setBudgetCategory] = useState('Food');
   const [budgetAmount, setBudgetAmount] = useState('');
   const [isSubmittingBudget, setIsSubmittingBudget] = useState(false);
+  const [budgetToDelete, setBudgetToDelete] = useState<string | null>(null);
 
   const monthBudgets = budgetGoals.filter(b => b.month === selectedDashboardMonth);
   const totalMonthSpent = monthExpenses.reduce((sum, exp) => sum + exp.amount, 0);
@@ -1089,12 +1120,14 @@ function Dashboard({ expenses, recurringExpenses, isDarkMode, budgetGoals, userI
     }
   };
 
-  const handleDeleteBudget = async (id: string) => {
-    if (!confirm("Are you sure you want to delete this budget goal?")) return;
+  const confirmDeleteBudget = async () => {
+    if (!budgetToDelete) return;
     try {
-      await deleteDoc(doc(db, 'categoryBudgets', id));
+      await deleteDoc(doc(db, 'categoryBudgets', budgetToDelete));
     } catch (error) {
       console.error("Error deleting budget:", error);
+    } finally {
+      setBudgetToDelete(null);
     }
   };
 
@@ -1422,7 +1455,7 @@ function Dashboard({ expenses, recurringExpenses, isDarkMode, budgetGoals, userI
                         ₹{budget.amount.toFixed(0)}
                       </span>
                       <button 
-                        onClick={() => handleDeleteBudget(budget.id)}
+                        onClick={() => setBudgetToDelete(budget.id)}
                         className="text-gray-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all p-1"
                         title="Delete budget"
                       >
@@ -1450,6 +1483,33 @@ function Dashboard({ expenses, recurringExpenses, isDarkMode, budgetGoals, userI
                   )}
                 </div>
               ))}
+          </div>
+        )}
+
+        {budgetToDelete && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-in fade-in duration-200">
+            <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl w-full max-w-sm overflow-hidden animate-in zoom-in-95 duration-200 border border-gray-100 dark:border-gray-700">
+              <div className="p-6">
+                <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-50 mb-2">Delete Budget Goal</h3>
+                <p className="text-sm text-gray-500 dark:text-gray-400">
+                  Are you sure you want to delete this budget goal? You will no longer see progress for this category on the dashboard.
+                </p>
+              </div>
+              <div className="px-6 py-4 bg-gray-50 dark:bg-gray-800/50 flex justify-end gap-3 rounded-b-2xl border-t border-gray-100 dark:border-gray-700/50">
+                <button
+                  onClick={() => setBudgetToDelete(null)}
+                  className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-xl transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={confirmDeleteBudget}
+                  className="px-4 py-2 text-sm font-medium text-white bg-red-600 hover:bg-red-700 rounded-xl transition-colors shadow-sm"
+                >
+                  Delete Budget
+                </button>
+              </div>
+            </div>
           </div>
         )}
 
@@ -1504,7 +1564,13 @@ function Dashboard({ expenses, recurringExpenses, isDarkMode, budgetGoals, userI
 }
 
 function AIInsights({ expenses }: { expenses: Expense[] }) {
-  const [insights, setInsights] = useState<{ insights: string, recommendations: string[] } | null>(null);
+  const [insights, setInsights] = useState<{ 
+    insights: string, 
+    recommendations: string[],
+    topMerchants: { category: string, merchant: string, amount: number }[],
+    trends: string,
+    yoyStatus?: string
+  } | null>(null);
   const [loading, setLoading] = useState(false);
 
   const generateInsights = async () => {
@@ -1512,13 +1578,62 @@ function AIInsights({ expenses }: { expenses: Expense[] }) {
     
     setLoading(true);
     try {
-      // Get last 30 expenses to avoid token limits
-      const recentExpenses = expenses.slice(0, 30);
-      const expensesSummary = recentExpenses.map((e: any) => `${e.date}: ${e.description} - ₹${e.amount} (${e.category})`).join("\n");
-      
+      // 1. Group by Month for Trend Analysis
+      const monthlyData = expenses.reduce((acc, exp) => {
+        const month = exp.date.substring(0, 7); // yyyy-MM
+        acc[month] = (acc[month] || 0) + exp.amount;
+        return acc;
+      }, {} as Record<string, number>);
+
+      // 2. Group by Category and Merchant (Description)
+      const categoryMerchantData = expenses.reduce((acc, exp) => {
+        if (!acc[exp.category]) acc[exp.category] = {};
+        acc[exp.category][exp.description] = (acc[exp.category][exp.description] || 0) + exp.amount;
+        return acc;
+      }, {} as Record<string, Record<string, number>>);
+
+      // 3. Find Top Merchants globally or per category
+      const merchantsList: { category: string, merchant: string, amount: number }[] = [];
+      Object.entries(categoryMerchantData).forEach(([category, merchants]) => {
+        Object.entries(merchants).forEach(([merchant, amount]) => {
+          merchantsList.push({ category, merchant, amount });
+        });
+      });
+      const topMerchants = merchantsList.sort((a, b) => b.amount - a.amount).slice(0, 10);
+
+      // 4. YoY Comparison if possible
+      const currentMonth = format(new Date(), 'yyyy-MM');
+      const lastYearMonth = format(subMonths(new Date(), 12), 'yyyy-MM');
+      const currentMonthTotal = monthlyData[currentMonth] || 0;
+      const lastYearMonthTotal = monthlyData[lastYearMonth] || 0;
+
+      let yoyContext = "";
+      if (lastYearMonthTotal > 0) {
+        const diff = ((currentMonthTotal - lastYearMonthTotal) / lastYearMonthTotal) * 100;
+        yoyContext = `Year-over-Year Comparison: This month (₹${currentMonthTotal.toFixed(0)}) vs same month last year (₹${lastYearMonthTotal.toFixed(0)}). Change: ${diff.toFixed(1)}%.`;
+      }
+
+      // Prepare summary for AI
+      const topMerchantsSummary = topMerchants.map(m => `- ${m.merchant} in ${m.category}: ₹${m.amount.toFixed(0)}`).join('\n');
+      const trendSummary = Object.entries(monthlyData).sort((a, b) => b[0].localeCompare(a[0])).slice(0, 6).map(([m, a]) => `${m}: ₹${a.toFixed(0)}`).join(', ');
+
       const response = await ai.models.generateContent({
-        model: "gemini-3.1-pro-preview",
-        contents: `Analyze these recent expenses and provide financial insights and saving recommendations:\n${expensesSummary}`,
+        model: "gemini-1.5-flash",
+        contents: `Analyze these financial metrics and provide deep insights:
+        
+Top Merchants & Categories:
+${topMerchantsSummary}
+
+Recent Monthly Totals:
+${trendSummary}
+
+${yoyContext}
+
+Please provide:
+1. A detailed analysis of spending patterns, specifically highlighting any problematic merchants or sub-categories.
+2. Trend analysis (how spending is changing month-to-month).
+3. If YoY data is available, comment on long-term progress.
+4. 4-6 specific, actionable saving recommendations.`,
         config: {
           responseMimeType: "application/json",
           responseSchema: {
@@ -1526,21 +1641,32 @@ function AIInsights({ expenses }: { expenses: Expense[] }) {
             properties: {
               insights: {
                 type: Type.STRING,
-                description: "A short paragraph summarizing spending habits and trends."
+                description: "Deep summary of spending habits."
+              },
+              trends: {
+                type: Type.STRING,
+                description: "Analysis of month-to-month and yearly trends."
               },
               recommendations: {
                 type: Type.ARRAY,
                 items: { type: Type.STRING },
-                description: "Actionable tips to save money based on the expenses."
+                description: "Actionable tips."
+              },
+              yoyStatus: {
+                type: Type.STRING,
+                description: "Short status of YoY progress if applicable."
               }
             },
-            required: ["insights", "recommendations"]
+            required: ["insights", "trends", "recommendations"]
           }
         }
       });
       
-      const data = JSON.parse(response.text || '{"insights": "Unable to analyze.", "recommendations": []}');
-      setInsights(data);
+      const data = JSON.parse(response.text || '{"insights": "Unable to analyze.", "trends": "", "recommendations": []}');
+      setInsights({
+        ...data,
+        topMerchants
+      });
     } catch (error) {
       console.error("Error generating insights:", error);
     } finally {
@@ -1553,53 +1679,95 @@ function AIInsights({ expenses }: { expenses: Expense[] }) {
       <div className="flex items-center justify-between mb-6">
         <h2 className="text-lg font-semibold text-indigo-900 dark:text-indigo-100 flex items-center gap-2">
           <Sparkles className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />
-          AI Financial Insights
+          AI Financial Intelligence
         </h2>
         <button
           onClick={generateInsights}
           disabled={loading || expenses.length === 0}
-          className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 dark:bg-indigo-500 dark:hover:bg-indigo-600 text-white text-sm font-medium rounded-xl transition-colors disabled:opacity-50 flex items-center gap-2"
+          className="px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 dark:bg-indigo-500 dark:hover:bg-indigo-600 text-white text-sm font-bold rounded-xl transition-all shadow-lg shadow-indigo-200 dark:shadow-none disabled:opacity-50 flex items-center gap-2"
         >
-          {loading ? <><Loader2 className="w-4 h-4 animate-spin" /> Analyzing...</> : 'Generate Insights'}
+          {loading ? <><Loader2 className="w-4 h-4 animate-spin" /> Deep Analysis...</> : 'Generate Intelligence'}
         </button>
       </div>
 
       {!insights && !loading && (
-        <div className="text-center py-8">
-          <p className="text-indigo-800/70 dark:text-indigo-200/70 text-sm">Click generate to let AI analyze your spending patterns and provide personalized recommendations.</p>
+        <div className="text-center py-12 px-4 bg-white/40 dark:bg-gray-900/40 rounded-2xl border border-dashed border-indigo-200 dark:border-indigo-800">
+          <div className="w-12 h-12 bg-indigo-100 dark:bg-indigo-900/40 rounded-full flex items-center justify-center mx-auto mb-4">
+            <Sparkles className="w-6 h-6 text-indigo-600 dark:text-indigo-400" />
+          </div>
+          <h3 className="text-indigo-900 dark:text-indigo-100 font-semibold mb-2">Ready for Analysis</h3>
+          <p className="text-indigo-800/70 dark:text-indigo-200/70 text-sm max-w-sm mx-auto">Get granular merchant-level suggestions and long-term trend analysis powered by AI.</p>
         </div>
       )}
 
       {insights && (
-        <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
-          <div className="bg-white dark:bg-gray-900 rounded-2xl p-6 border border-indigo-100 dark:border-indigo-800/50 shadow-sm relative overflow-hidden group hover:border-indigo-200 dark:hover:border-indigo-700/80 transition-colors">
-            <div className="absolute -top-6 -right-6 p-4 opacity-5 dark:opacity-10 pointer-events-none group-hover:scale-110 transition-transform duration-500">
-              <Lightbulb className="w-32 h-32 text-indigo-600 dark:text-indigo-400" />
-            </div>
-            <div className="relative z-10">
-              <h3 className="text-sm font-semibold text-indigo-900 dark:text-indigo-100 mb-3 flex items-center gap-2">
+        <div className="space-y-6 animate-in modal-enter">
+          {/* Main Insights & Trends */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div className="bg-white dark:bg-gray-900 rounded-2xl p-6 border border-indigo-100 dark:border-indigo-800/50 shadow-sm transition-all hover:shadow-md">
+              <h3 className="text-sm font-semibold text-indigo-900 dark:text-indigo-100 mb-4 flex items-center gap-2">
                 <Activity className="w-4 h-4 text-indigo-500" />
-                Spending Analysis
+                Behavioral Analysis
               </h3>
               <p className="text-gray-700 dark:text-gray-300 leading-relaxed text-sm">
                 {insights.insights}
               </p>
             </div>
+
+            <div className="bg-white dark:bg-gray-900 rounded-2xl p-6 border border-blue-100 dark:border-blue-800/50 shadow-sm transition-all hover:shadow-md">
+              <h3 className="text-sm font-semibold text-blue-900 dark:text-blue-100 mb-4 flex items-center gap-2">
+                <TrendingUp className="w-4 h-4 text-blue-500" />
+                Trend Intelligence
+              </h3>
+              <p className="text-gray-700 dark:text-gray-300 leading-relaxed text-sm mb-3">
+                {insights.trends}
+              </p>
+              {insights.yoyStatus && (
+                <div className="mt-4 pt-4 border-t border-blue-50 dark:border-blue-900/30 flex items-center gap-3">
+                  <div className="p-2 bg-blue-50 dark:bg-blue-900/40 rounded-lg">
+                    <Calendar className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+                  </div>
+                  <p className="text-xs font-medium text-blue-800 dark:text-blue-200">
+                    {insights.yoyStatus}
+                  </p>
+                </div>
+              )}
+            </div>
           </div>
+
+          {/* Merchant Breakdown */}
+          {insights.topMerchants && insights.topMerchants.length > 0 && (
+            <div className="bg-white dark:bg-gray-900 rounded-2xl p-6 border border-gray-100 dark:border-gray-800 shadow-sm">
+              <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-50 mb-4 flex items-center gap-2">
+                <DollarSign className="w-4 h-4 text-gray-500" />
+                Top Expenditure Breakdown
+              </h3>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                {insights.topMerchants.slice(0, 6).map((m, i) => (
+                  <div key={i} className="flex justify-between items-center p-3 rounded-xl bg-gray-50 dark:bg-gray-800/50 text-xs transition-transform hover:scale-[1.02]">
+                    <div className="overflow-hidden">
+                      <p className="font-bold text-gray-900 dark:text-gray-100 truncate">{m.merchant}</p>
+                      <p className="text-[10px] text-gray-500 uppercase tracking-tighter">{m.category}</p>
+                    </div>
+                    <span className="font-mono text-indigo-600 dark:text-indigo-400 font-bold">₹{m.amount.toFixed(0)}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
           
+          {/* Recommendations */}
           {insights.recommendations && insights.recommendations.length > 0 && (
             <div>
-              <h3 className="text-sm font-semibold text-indigo-900 dark:text-indigo-100 mb-4 flex items-center gap-2">
+              <h3 className="text-sm font-semibold text-indigo-900 dark:text-indigo-100 mb-4 px-1 flex items-center gap-2">
                 <Target className="w-4 h-4 text-indigo-500" />
-                Actionable Recommendations
+                Strategic Recommendations
               </h3>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
                 {insights.recommendations.map((rec, i) => (
-                  <div key={i} className="bg-white/60 dark:bg-gray-900/60 backdrop-blur-sm rounded-2xl p-5 border border-indigo-50 dark:border-indigo-800/30 hover:border-indigo-200 dark:hover:border-indigo-700/80 hover:shadow-md transition-all group flex gap-4">
-                    <div className="w-8 h-8 rounded-full bg-indigo-100 dark:bg-indigo-900/50 text-indigo-600 dark:text-indigo-400 flex items-center justify-center flex-shrink-0 group-hover:scale-110 transition-transform">
-                      <span className="text-sm font-bold">{i + 1}</span>
-                    </div>
-                    <p className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed mt-1">
+                  <div key={i} className="bg-white/60 dark:bg-gray-900/60 backdrop-blur-sm rounded-2xl p-5 border border-indigo-50 dark:border-indigo-800/30 hover:border-indigo-200 dark:hover:border-indigo-700/80 hover:shadow-md transition-all group relative overflow-hidden">
+                    <div className="absolute top-0 left-0 w-1 h-full bg-indigo-500/50 group-hover:bg-indigo-500 transition-colors" />
+                    <p className="text-xs text-gray-700 dark:text-gray-300 leading-relaxed font-medium">
                       {rec}
                     </p>
                   </div>
