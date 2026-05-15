@@ -1174,28 +1174,62 @@ function Dashboard({ expenses, recurringExpenses, isDarkMode, budgetGoals, userI
     };
   });
 
+  // Budget alerts
+  const budgetAlerts = monthBudgets.map(budget => {
+    const spent = monthCategoryData[budget.category] || 0;
+    const percent = budget.amount > 0 ? (spent / budget.amount) * 100 : 0;
+    return { ...budget, spent, percent };
+  }).filter(b => b.percent >= 80)
+    .sort((a, b) => b.percent - a.percent);
+
   return (
     <div className="space-y-6">
-      {/* Upcoming Alerts */}
-      {upcomingExpenses.length > 0 && (
-        <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-100 dark:border-amber-800 rounded-2xl p-4 flex items-start gap-4 transition-colors">
-          <div className="p-2 bg-amber-100 dark:bg-amber-900/40 rounded-xl">
-            <Bell className="w-5 h-5 text-amber-600 dark:text-amber-400" />
-          </div>
-          <div className="flex-1">
-            <h3 className="font-semibold text-amber-900 dark:text-amber-100 text-sm">Upcoming Recurring Expenses</h3>
-            <div className="mt-2 space-y-2">
-              {upcomingExpenses.map(expense => (
-                <div key={expense.id} className="flex items-center justify-between text-xs text-amber-800 dark:text-amber-200">
-                  <span>
-                    <span className="font-medium mr-1 text-amber-900 dark:text-amber-50">{expense.description}</span>
-                    due on {expense.nextDueDate}
-                  </span>
-                  <span className="font-bold">₹{expense.amount.toFixed(2)}</span>
+      {/* Alerts & Notifications */}
+      {(upcomingExpenses.length > 0 || budgetAlerts.length > 0) && (
+        <div className="space-y-3">
+          {upcomingExpenses.length > 0 && selectedDashboardMonth === currentMonthStr && (
+            <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-100 dark:border-amber-800 rounded-2xl p-4 flex items-start gap-4 transition-colors">
+              <div className="p-2 bg-amber-100 dark:bg-amber-900/40 rounded-xl">
+                <Bell className="w-5 h-5 text-amber-600 dark:text-amber-400" />
+              </div>
+              <div className="flex-1">
+                <h3 className="font-semibold text-amber-900 dark:text-amber-100 text-sm">Upcoming Recurring Expenses</h3>
+                <div className="mt-2 space-y-2">
+                  {upcomingExpenses.map(expense => (
+                    <div key={expense.id} className="flex items-center justify-between text-xs text-amber-800 dark:text-amber-200">
+                      <span>
+                        <span className="font-medium mr-1 text-amber-900 dark:text-amber-50">{expense.description}</span>
+                        due on {expense.nextDueDate}
+                      </span>
+                      <span className="font-bold">₹{expense.amount.toFixed(2)}</span>
+                    </div>
+                  ))}
                 </div>
-              ))}
+              </div>
             </div>
-          </div>
+          )}
+
+          {budgetAlerts.length > 0 && (
+            <div className="bg-red-50 dark:bg-red-900/20 border border-red-100 dark:border-red-800 rounded-2xl p-4 flex items-start gap-4 transition-colors">
+              <div className="p-2 bg-red-100 dark:bg-red-900/40 rounded-xl">
+                <Target className="w-5 h-5 text-red-600 dark:text-red-400" />
+              </div>
+              <div className="flex-1">
+                <h3 className="font-semibold text-red-900 dark:text-red-100 text-sm">Budget Alerts for {format(selectedDate, 'MMMM')}</h3>
+                <div className="mt-2 space-y-2">
+                  {budgetAlerts.map(alert => (
+                    <div key={alert.id} className="flex items-center justify-between text-xs text-red-800 dark:text-red-200">
+                      <span>
+                        <span className="font-medium mr-1 text-red-900 dark:text-red-50">{alert.category}</span>
+                        {alert.percent >= 100 ? 'budget exceeded!' : 'nearing budget limit (80%+)'}
+                      </span>
+                      <span className="font-bold">₹{alert.spent.toFixed(2)} / ₹{alert.amount.toFixed(2)}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
