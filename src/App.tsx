@@ -138,40 +138,12 @@ export default function App() {
       where('userId', '==', user.uid)
     );
 
-    const unsubscribeRecurring = onSnapshot(qRecurring, async (snapshot) => {
+    const unsubscribeRecurring = onSnapshot(qRecurring, (snapshot) => {
       const recurringData = snapshot.docs.map(doc => ({
         id: doc.id,
         ...doc.data()
       })) as RecurringExpense[];
       setRecurringExpenses(recurringData);
-
-      const today = format(new Date(), 'yyyy-MM-dd');
-      for (const recurring of recurringData) {
-        if (recurring.nextDueDate <= today) {
-          try {
-            await addDoc(collection(db, 'expenses'), {
-              userId: user.uid,
-              description: recurring.description,
-              amount: recurring.amount,
-              category: recurring.category,
-              date: recurring.nextDueDate,
-              createdAt: serverTimestamp()
-            });
-
-            const nextDate = new Date(recurring.nextDueDate);
-            if (recurring.frequency === 'daily') nextDate.setDate(nextDate.getDate() + 1);
-            else if (recurring.frequency === 'weekly') nextDate.setDate(nextDate.getDate() + 7);
-            else if (recurring.frequency === 'monthly') nextDate.setMonth(nextDate.getMonth() + 1);
-            else if (recurring.frequency === 'yearly') nextDate.setFullYear(nextDate.getFullYear() + 1);
-
-            await updateDoc(doc(db, 'recurringExpenses', recurring.id), {
-              nextDueDate: format(nextDate, 'yyyy-MM-dd')
-            });
-          } catch (err) {
-            console.error("Error processing recurring expense:", err);
-          }
-        }
-      }
     });
 
     const qRules = query(
