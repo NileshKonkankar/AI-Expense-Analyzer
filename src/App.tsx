@@ -2,9 +2,10 @@ import React, { useState, useEffect } from 'react';
 import { collection, query, where, onSnapshot, addDoc, deleteDoc, updateDoc, doc, serverTimestamp, orderBy } from 'firebase/firestore';
 import { db, auth, loginWithGoogle, logout } from './firebase';
 import { onAuthStateChanged } from 'firebase/auth';
-import { format, addMonths, subMonths, parse, startOfMonth, endOfMonth, eachDayOfInterval } from 'date-fns';
+import { format, addMonths, subMonths, parse, startOfMonth, endOfMonth, eachDayOfInterval, startOfWeek, endOfWeek, isSameDay, isSameMonth, addYears, subYears } from 'date-fns';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RechartsTooltip, BarChart, Bar, XAxis, YAxis, CartesianGrid, AreaChart, Area } from 'recharts';
-import { Plus, Trash2, LogOut, Loader2, Sparkles, TrendingUp, DollarSign, PieChart as PieChartIcon, Activity, Sun, Moon, Repeat, Lightbulb, Target, Filter, ChevronDown, ChevronUp, X, Search, ChevronLeft, ChevronRight, Calendar, Bell } from 'lucide-react';
+import { Plus, Trash2, LogOut, Loader2, Sparkles, TrendingUp, DollarSign, PieChart as PieChartIcon, Activity, Sun, Moon, Repeat, Lightbulb, Target, Filter, ChevronDown, ChevronUp, X, Search, ChevronLeft, ChevronRight, Calendar, Bell, ChevronFirst, ChevronLast } from 'lucide-react';
+import { motion, AnimatePresence } from 'motion/react';
 import { cn } from './lib/utils';
 
 import { GoogleGenAI, Type } from "@google/genai";
@@ -61,8 +62,172 @@ const CATEGORY_COLORS: Record<string, string> = {
   Other: '#6B7280',
 };
 
+// --- Helper Hook ---
+function useClickOutside(ref: React.RefObject<HTMLDivElement | null>, handler: () => void) {
+  useEffect(() => {
+    const listener = (event: MouseEvent | TouchEvent) => {
+      if (!ref.current || ref.current.contains(event.target as Node)) return;
+      handler();
+    };
+    document.addEventListener('mousedown', listener);
+    document.addEventListener('touchstart', listener);
+    return () => {
+      document.removeEventListener('mousedown', listener);
+      document.removeEventListener('touchstart', listener);
+    };
+  }, [ref, handler]);
+}
+
 // --- Components ---
 
+interface DatePickerProps {
+  value: string;
+  onChange: (value: string) => void;
+  label?: string;
+  className?: string;
+}
+
+function DatePicker({ value, onChange, label, className }: DatePickerProps) {
+  const [isOpen, setIsOpen] = useState(false);
+  const [viewDate, setViewDate] = useState(value ? parse(value, 'yyyy-MM-dd', new Date()) : new Date());
+  const containerRef = React.useRef<HTMLDivElement>(null);
+
+  useClickOutside(containerRef, () => setIsOpen(false));
+
+  const selectedDate = value ? parse(value, 'yyyy-MM-dd', new Date()) : null;
+
+  const days = eachDayOfInterval({
+    start: startOfWeek(startOfMonth(viewDate)),
+    end: endOfWeek(endOfMonth(viewDate))
+  });
+
+  const handlePrevMonth = (e: React.MouseEvent) => {
+    e.preventDefault();
+    setViewDate(subMonths(viewDate, 1));
+  };
+  
+  const handleNextMonth = (e: React.MouseEvent) => {
+    e.preventDefault();
+    setViewDate(addMonths(viewDate, 1));
+  };
+
+  const handlePrevYear = (e: React.MouseEvent) => {
+    e.preventDefault();
+    setViewDate(subYears(viewDate, 1));
+  };
+
+  const handleNextYear = (e: React.MouseEvent) => {
+    e.preventDefault();
+    setViewDate(addYears(viewDate, 1));
+  };
+
+  const handleDateSelect = (date: Date) => {
+    onChange(format(date, 'yyyy-MM-dd'));
+    setIsOpen(false);
+  };
+
+  return (
+    <div className={cn("relative", className)} ref={containerRef}>
+      {label && <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{label}</label>}
+      <button
+        type="button"
+        onClick={() => setIsOpen(!isOpen)}
+        className="w-full flex items-center justify-between px-4 py-2 bg-white dark:bg-gray-950 border border-gray-200 dark:border-gray-700 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none transition-all text-gray-900 dark:text-gray-50 text-left"
+      >
+        <span className={cn(!value && "text-gray-400 dark:text-gray-500")}>
+          {value ? format(parse(value, 'yyyy-MM-dd', new Date()), 'MMM dd, yyyy') : 'Select date'}
+        </span>
+        <Calendar className="w-4 h-4 text-gray-400" />
+      </button>
+
+      <AnimatePresence>
+        {isOpen && (
+          <motion.div
+            initial={{ opacity: 0, y: 10, scale: 0.95 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 10, scale: 0.95 }}
+            transition={{ duration: 0.2 }}
+            className="absolute z-50 mt-2 p-4 bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 rounded-2xl shadow-xl w-72"
+          >
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-1">
+                <button onClick={handlePrevYear} className="p-1 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg text-gray-500 transition-colors">
+                  <ChevronFirst className="w-4 h-4" />
+                </button>
+                <button onClick={handlePrevMonth} className="p-1 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg text-gray-500 transition-colors">
+                  <ChevronLeft className="w-4 h-4" />
+                </button>
+              </div>
+              <span className="text-sm font-bold text-gray-900 dark:text-gray-50">
+                {format(viewDate, 'MMMM yyyy')}
+              </span>
+              <div className="flex items-center gap-1">
+                <button onClick={handleNextMonth} className="p-1 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg text-gray-500 transition-colors">
+                  <ChevronRight className="w-4 h-4" />
+                </button>
+                <button onClick={handleNextYear} className="p-1 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg text-gray-500 transition-colors">
+                  <ChevronLast className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-7 gap-1 mb-2">
+              {['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'].map(day => (
+                <div key={day} className="text-center text-[10px] font-bold text-gray-400 dark:text-gray-500 uppercase tracking-tighter">
+                  {day}
+                </div>
+              ))}
+            </div>
+
+            <div className="grid grid-cols-7 gap-1">
+              {days.map((day, i) => {
+                const isSelected = selectedDate && isSameDay(day, selectedDate);
+                const isCurrentMonth = isSameMonth(day, viewDate);
+                const isToday = isSameDay(day, new Date());
+
+                return (
+                  <button
+                    key={i}
+                    type="button"
+                    onClick={() => handleDateSelect(day)}
+                    className={cn(
+                      "aspect-square flex items-center justify-center text-xs rounded-lg transition-all",
+                      !isCurrentMonth && "text-gray-300 dark:text-gray-600",
+                      isCurrentMonth && "text-gray-700 dark:text-gray-300 hover:bg-blue-50 dark:hover:bg-blue-900/30",
+                      isSelected ? "bg-blue-600 text-white hover:bg-blue-700 shadow-md scale-105" : 
+                      isToday ? "border border-blue-200 dark:border-blue-800 font-bold" : ""
+                    )}
+                  >
+                    {format(day, 'd')}
+                  </button>
+                );
+              })}
+            </div>
+
+            <div className="mt-4 pt-3 border-t border-gray-100 dark:border-gray-800 flex justify-between">
+               <button 
+                type="button"
+                onClick={() => handleDateSelect(new Date())}
+                className="text-[10px] font-bold text-blue-600 dark:text-blue-400 hover:underline"
+               >
+                TODAY
+               </button>
+               <button 
+                type="button"
+                onClick={() => { onChange(''); setIsOpen(false); }}
+                className="text-[10px] font-bold text-gray-400 hover:underline"
+               >
+                CLEAR
+               </button>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+
+// --- App Component ---
 export default function App() {
   const [user, setUser] = useState<any>(null);
   const [isAuthReady, setIsAuthReady] = useState(false);
@@ -547,16 +712,12 @@ function ExpenseForm({ userId, expenses, categoryRules }: { userId: string, expe
               required
             />
           </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{frequency === 'none' ? 'Date' : 'Start Date'}</label>
-            <input
-              type="date"
-              value={date}
-              onChange={(e) => setDate(e.target.value)}
-              className="w-full px-4 py-2 bg-white dark:bg-gray-950 border border-gray-200 dark:border-gray-700 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all text-gray-900 dark:text-gray-50"
-              required
-            />
-          </div>
+          <DatePicker
+            label={frequency === 'none' ? 'Date' : 'Start Date'}
+            value={date}
+            onChange={(val) => setDate(val)}
+            className="w-full"
+          />
         </div>
         <div>
           <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Repeat</label>
@@ -705,24 +866,18 @@ function ExpenseList({ expenses }: { expenses: Expense[] }) {
                 />
               </div>
             </div>
-            <div>
-              <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Start Date</label>
-              <input
-                type="date"
-                value={startDate}
-                onChange={(e) => setStartDate(e.target.value)}
-                className="w-full px-3 py-1.5 text-sm bg-white dark:bg-gray-950 border border-gray-200 dark:border-gray-700 rounded-lg focus:ring-1 focus:ring-blue-500 outline-none text-gray-900 dark:text-gray-50"
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">End Date</label>
-              <input
-                type="date"
-                value={endDate}
-                onChange={(e) => setEndDate(e.target.value)}
-                className="w-full px-3 py-1.5 text-sm bg-white dark:bg-gray-950 border border-gray-200 dark:border-gray-700 rounded-lg focus:ring-1 focus:ring-blue-500 outline-none text-gray-900 dark:text-gray-50"
-              />
-            </div>
+            <DatePicker
+              label="Start Date"
+              value={startDate}
+              onChange={(val) => setStartDate(val)}
+              className="w-full"
+            />
+            <DatePicker
+              label="End Date"
+              value={endDate}
+              onChange={(val) => setEndDate(val)}
+              className="w-full"
+            />
           </div>
         </div>
       )}
