@@ -3,7 +3,7 @@ import { collection, query, where, onSnapshot, addDoc, deleteDoc, updateDoc, doc
 import { db, auth, loginWithGoogle, logout } from './firebase';
 import { onAuthStateChanged } from 'firebase/auth';
 import { format, addMonths, subMonths, parse, startOfMonth, endOfMonth, eachDayOfInterval, startOfWeek, endOfWeek, isSameDay, isSameMonth, addYears, subYears } from 'date-fns';
-import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RechartsTooltip, BarChart, Bar, XAxis, YAxis, CartesianGrid, AreaChart, Area } from 'recharts';
+import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RechartsTooltip, BarChart, Bar, XAxis, YAxis, CartesianGrid, AreaChart, Area, Legend } from 'recharts';
 import { Plus, Trash2, LogOut, Loader2, Sparkles, TrendingUp, DollarSign, PieChart as PieChartIcon, Activity, Sun, Moon, Repeat, Lightbulb, Target, Filter, ChevronDown, ChevronUp, X, Search, ChevronLeft, ChevronRight, Calendar, Bell, ChevronFirst, ChevronLast } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from './lib/utils';
@@ -1179,6 +1179,8 @@ function RecurringExpenseList({ recurringExpenses }: { recurringExpenses: Recurr
 
 function Dashboard({ expenses, recurringExpenses, isDarkMode, budgetGoals, userId }: { expenses: Expense[], recurringExpenses: RecurringExpense[], isDarkMode: boolean, budgetGoals: BudgetGoal[], userId: string }) {
   const [selectedDashboardMonth, setSelectedDashboardMonth] = useState(format(new Date(), 'yyyy-MM'));
+  const [compareRange, setCompareRange] = useState<number>(6);
+  const [compareChartType, setCompareChartType] = useState<'total' | 'categories'>('total');
   const currentMonthStr = format(new Date(), 'yyyy-MM');
   
   const totalSpent = expenses.reduce((sum, exp) => sum + exp.amount, 0);
@@ -1300,6 +1302,72 @@ function Dashboard({ expenses, recurringExpenses, isDarkMode, budgetGoals, userI
       amount: monthDailyAggregated[dateStr] || 0
     };
   });
+
+  // --- Multi-month comparison calculations ---
+  const comparisonMonths = React.useMemo(() => {
+    const monthsList = [];
+    for (let i = 0; i < compareRange; i++) {
+      monthsList.push(format(subMonths(new Date(), i), 'yyyy-MM'));
+    }
+    return monthsList.reverse(); // chronological order
+  }, [compareRange]);
+
+  const multiMonthData = React.useMemo(() => {
+    return comparisonMonths.map(month => {
+      const monthExp = expenses.filter(e => e.date.startsWith(month));
+      const totalSpent = monthExp.reduce((sum, e) => sum + e.amount, 0);
+      const monthBudg = budgetGoals.filter(b => b.month === month);
+      const totalBudget = monthBudg.reduce((sum, b) => sum + b.amount, 0);
+
+      const categoriesSum: Record<string, number> = {};
+      Object.keys(CATEGORY_COLORS).forEach(cat => {
+        categoriesSum[cat] = 0;
+      });
+      monthExp.forEach(e => {
+        const cat = e.category || 'Other';
+        categoriesSum[cat] = (categoriesSum[cat] || 0) + e.amount;
+      });
+
+      const parsedDate = parse(month, 'yyyy-MM', new Date());
+      const label = format(parsedDate, 'MMM yy');
+
+      // Find top category
+      let topCatName = '-';
+      let topCatAmt = 0;
+      Object.entries(categoriesSum).forEach(([cat, val]) => {
+        if (val > topCatAmt) {
+          topCatAmt = val;
+          topCatName = cat;
+        }
+      });
+
+      return {
+        monthKey: month,
+        label,
+        spent: parseFloat(totalSpent.toFixed(2)),
+        budget: parseFloat(totalBudget.toFixed(2)),
+        numTransactions: monthExp.length,
+        topCategory: topCatAmt > 0 ? `${topCatName} (₹${topCatAmt.toFixed(0)})` : '-',
+        ...categoriesSum
+      };
+    });
+  }, [comparisonMonths, expenses, budgetGoals]);
+
+  const tableDataWithMom = React.useMemo(() => {
+    return multiMonthData.map((data, idx) => {
+      let momChange = null;
+      if (idx > 0) {
+        const prevSpent = multiMonthData[idx - 1].spent;
+        if (prevSpent > 0) {
+          momChange = ((data.spent - prevSpent) / prevSpent) * 100;
+        }
+      }
+      return {
+        ...data,
+        momChange
+      };
+    }).reverse(); // Display latest month first in the table
+  }, [multiMonthData]);
 
   // Budget alerts
   const budgetAlerts = monthBudgets.map(budget => {
@@ -1556,6 +1624,191 @@ function Dashboard({ expenses, recurringExpenses, isDarkMode, budgetGoals, userI
               />
             </AreaChart>
           </ResponsiveContainer>
+        </div>
+      </div>
+
+      {/* Multi-Month Comparison Section */}
+      <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-800 p-6 transition-colors duration-200">
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 mb-6">
+          <div className="flex items-center gap-3">
+            <div className="p-2 bg-indigo-50 dark:bg-indigo-900/40 rounded-xl">
+              <TrendingUp className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />
+            </div>
+            <div>
+              <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-50 uppercase tracking-wider text-[10px] text-indigo-600 dark:text-indigo-400">Analysis Engine</h3>
+              <h2 className="text-base font-bold text-gray-900 dark:text-gray-50 leading-tight border-none">Multi-Month Comparison & Trends</h2>
+            </div>
+          </div>
+          
+          <div className="flex flex-wrap items-center gap-3">
+            {/* Range Selector */}
+            <div className="flex bg-gray-50 dark:bg-gray-800 p-1 rounded-xl border border-gray-100 dark:border-gray-700">
+              {[3, 6, 12].map((range) => (
+                <button
+                  key={range}
+                  type="button"
+                  onClick={() => setCompareRange(range)}
+                  className={cn(
+                    "px-3 py-1 text-xs font-bold rounded-lg transition-all",
+                    compareRange === range
+                      ? "bg-white dark:bg-gray-700 text-indigo-600 dark:text-indigo-400 shadow-sm"
+                      : "text-gray-500 hover:text-gray-900 dark:hover:text-gray-200"
+                  )}
+                >
+                  {range}M
+                </button>
+              ))}
+            </div>
+
+            {/* Chart Type Selector */}
+            <div className="flex bg-gray-50 dark:bg-gray-800 p-1 rounded-xl border border-gray-100 dark:border-gray-700">
+              <button
+                type="button"
+                onClick={() => setCompareChartType('total')}
+                className={cn(
+                  "px-3 py-1 text-xs font-bold rounded-lg transition-all",
+                  compareChartType === 'total'
+                    ? "bg-white dark:bg-gray-700 text-indigo-600 dark:text-indigo-400 shadow-sm"
+                    : "text-gray-500 hover:text-gray-900 dark:hover:text-gray-200"
+                )}
+              >
+                Spent vs Budget
+              </button>
+              <button
+                type="button"
+                onClick={() => setCompareChartType('categories')}
+                className={cn(
+                  "px-3 py-1 text-xs font-bold rounded-lg transition-all",
+                  compareChartType === 'categories'
+                    ? "bg-white dark:bg-gray-700 text-indigo-600 dark:text-indigo-400 shadow-sm"
+                    : "text-gray-500 hover:text-gray-900 dark:hover:text-gray-200"
+                )}
+              >
+                Category Stack
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* Comparison Chart */}
+        <div className="h-72 w-full mb-6">
+          <ResponsiveContainer width="100%" height="100%">
+            <BarChart data={multiMonthData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={isDarkMode ? '#374151' : '#E5E7EB'} />
+              <XAxis 
+                dataKey="label" 
+                axisLine={false} 
+                tickLine={false} 
+                tick={{ fontSize: 11, fill: isDarkMode ? '#9CA3AF' : '#6B7280' }} 
+              />
+              <YAxis 
+                axisLine={false} 
+                tickLine={false} 
+                tick={{ fontSize: 11, fill: isDarkMode ? '#9CA3AF' : '#6B7280' }} 
+                tickFormatter={(val) => `₹${val}`} 
+              />
+              <RechartsTooltip 
+                formatter={(value: number) => `₹${value.toFixed(2)}`}
+                contentStyle={tooltipStyle}
+                itemStyle={{ color: isDarkMode ? '#F9FAFB' : '#111827' }}
+              />
+              <Legend 
+                verticalAlign="top" 
+                height={36} 
+                iconType="circle"
+                iconSize={8}
+                wrapperStyle={{ fontSize: 11, color: isDarkMode ? '#F9FAFB' : '#111827' }} 
+              />
+              {compareChartType === 'total' ? (
+                <>
+                  <Bar dataKey="spent" name="Spent" fill="#4f46e5" radius={[4, 4, 0, 0]} maxBarSize={30} />
+                  <Bar dataKey="budget" name="Budget Limit" fill="#10b981" radius={[4, 4, 0, 0]} maxBarSize={30} />
+                </>
+              ) : (
+                Object.keys(CATEGORY_COLORS).map((category) => (
+                  <Bar 
+                    key={category} 
+                    dataKey={category} 
+                    name={category} 
+                    stackId="a" 
+                    fill={CATEGORY_COLORS[category]} 
+                    maxBarSize={40}
+                  />
+                ))
+              )}
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+
+        {/* Detailed Table Comparison */}
+        <div className="overflow-x-auto rounded-xl border border-gray-100 dark:border-gray-800">
+          <table className="w-full text-left text-xs text-gray-500 dark:text-gray-400 border-collapse">
+            <thead className="bg-gray-50 dark:bg-gray-800/80 text-gray-700 dark:text-gray-300 font-semibold border-b border-gray-100 dark:border-gray-800">
+              <tr>
+                <th className="px-4 py-3">Month</th>
+                <th className="px-4 py-3">Total Spent</th>
+                <th className="px-4 py-3">Total Budget</th>
+                <th className="px-4 py-3">Utilization</th>
+                <th className="px-4 py-3">MoM Change</th>
+                <th className="px-4 py-3">Top Sector</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100 dark:divide-gray-800/50">
+              {tableDataWithMom.map((row) => {
+                const utilPercent = row.budget > 0 ? (row.spent / row.budget) * 100 : 0;
+                const isOverBudget = row.budget > 0 && row.spent > row.budget;
+                
+                return (
+                  <tr key={row.monthKey} className="hover:bg-gray-50/50 dark:hover:bg-gray-800/20 text-gray-900 dark:text-gray-100 transition-colors">
+                    <td className="px-4 py-3.5 font-bold text-gray-900 dark:text-gray-50">{row.label}</td>
+                    <td className="px-4 py-3.5 font-mono font-semibold">₹{row.spent.toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</td>
+                    <td className="px-4 py-3.5 font-mono text-gray-500 dark:text-gray-400">
+                      {row.budget > 0 ? `₹${row.budget.toLocaleString('en-IN', { minimumFractionDigits: 0 })}` : 'Not Set'}
+                    </td>
+                    <td className="px-4 py-3.5">
+                      {row.budget > 0 ? (
+                        <div className="flex items-center gap-2">
+                          <div className="w-16 bg-gray-100 dark:bg-gray-800 rounded-full h-1.5 overflow-hidden">
+                            <div 
+                              className={cn("h-full", isOverBudget ? "bg-red-500" : "bg-indigo-500")} 
+                              style={{ width: `${Math.min(100, utilPercent)}%` }} 
+                            />
+                          </div>
+                          <span className={cn("font-semibold text-[10px]", isOverBudget ? "text-red-500" : "text-gray-600 dark:text-gray-300")}>
+                            {utilPercent.toFixed(0)}%
+                          </span>
+                        </div>
+                      ) : (
+                        <span className="text-gray-400 dark:text-gray-600">-</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3.5 font-semibold">
+                      {row.momChange !== null ? (
+                        row.momChange > 0 ? (
+                          <span className="text-red-500 dark:text-red-400 flex items-center gap-0.5 font-bold">
+                            <ChevronUp className="w-3.5 h-3.5" />
+                            {row.momChange.toFixed(1)}%
+                          </span>
+                        ) : row.momChange < 0 ? (
+                          <span className="text-emerald-500 dark:text-emerald-400 flex items-center gap-0.5 font-bold">
+                            <ChevronDown className="w-3.5 h-3.5" />
+                            {Math.abs(row.momChange).toFixed(1)}%
+                          </span>
+                        ) : (
+                          <span className="text-gray-500">0.0%</span>
+                        )
+                      ) : (
+                        <span className="text-gray-400 dark:text-gray-600 font-medium">Initial Mo.</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3.5 text-gray-500 dark:text-gray-400 truncate max-w-[140px]" title={row.topCategory}>
+                      {row.topCategory}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
         </div>
       </div>
 
