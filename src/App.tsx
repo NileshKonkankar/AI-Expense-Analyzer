@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { collection, query, where, onSnapshot, addDoc, deleteDoc, updateDoc, doc, serverTimestamp, orderBy } from 'firebase/firestore';
 import { db, auth, loginWithGoogle, logout } from './firebase';
 import { onAuthStateChanged } from 'firebase/auth';
 import { format, addMonths, subMonths, parse, startOfMonth, endOfMonth, eachDayOfInterval, startOfWeek, endOfWeek, isSameDay, isSameMonth, addYears, subYears } from 'date-fns';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RechartsTooltip, BarChart, Bar, XAxis, YAxis, CartesianGrid, AreaChart, Area, Legend } from 'recharts';
-import { Plus, Trash2, LogOut, Loader2, Sparkles, TrendingUp, DollarSign, PieChart as PieChartIcon, Activity, Sun, Moon, Repeat, Lightbulb, Target, Filter, ChevronDown, ChevronUp, X, Search, ChevronLeft, ChevronRight, Calendar, Bell, ChevronFirst, ChevronLast } from 'lucide-react';
+import { Plus, Trash2, LogOut, Loader2, Sparkles, TrendingUp, DollarSign, PieChart as PieChartIcon, Activity, Sun, Moon, Repeat, Lightbulb, Target, Filter, ChevronDown, ChevronUp, X, Search, ChevronLeft, ChevronRight, Calendar, Bell, ChevronFirst, ChevronLast, Printer } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from './lib/utils';
 
@@ -384,7 +385,7 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-950 text-gray-900 dark:text-gray-50 font-sans transition-colors duration-200">
+    <div id="app-container" className="min-h-screen bg-gray-50 dark:bg-gray-950 text-gray-900 dark:text-gray-50 font-sans transition-colors duration-200 print:hidden">
       <header className="bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-800 sticky top-0 z-10 transition-colors duration-200">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
           <div className="flex items-center gap-2">
@@ -428,7 +429,7 @@ export default function App() {
 
           {/* Right Column: Dashboard & Insights */}
           <div className="lg:col-span-2 space-y-8">
-            <Dashboard expenses={expenses} recurringExpenses={recurringExpenses} isDarkMode={isDarkMode} budgetGoals={budgetGoals} userId={user.uid} />
+            <Dashboard expenses={expenses} recurringExpenses={recurringExpenses} isDarkMode={isDarkMode} budgetGoals={budgetGoals} userId={user.uid} user={user} />
             <AIInsights expenses={expenses} />
           </div>
         </div>
@@ -1177,10 +1178,17 @@ function RecurringExpenseList({ recurringExpenses }: { recurringExpenses: Recurr
   );
 }
 
-function Dashboard({ expenses, recurringExpenses, isDarkMode, budgetGoals, userId }: { expenses: Expense[], recurringExpenses: RecurringExpense[], isDarkMode: boolean, budgetGoals: BudgetGoal[], userId: string }) {
+function Dashboard({ expenses, recurringExpenses, isDarkMode, budgetGoals, userId, user }: { expenses: Expense[], recurringExpenses: RecurringExpense[], isDarkMode: boolean, budgetGoals: BudgetGoal[], userId: string, user: any }) {
   const [selectedDashboardMonth, setSelectedDashboardMonth] = useState(format(new Date(), 'yyyy-MM'));
   const [compareRange, setCompareRange] = useState<number>(6);
   const [compareChartType, setCompareChartType] = useState<'total' | 'categories'>('total');
+  
+  // Custom interactive options for printable statement report
+  const [isPrintModalOpen, setIsPrintModalOpen] = useState(false);
+  const [includeTransactions, setIncludeTransactions] = useState(true);
+  const [includeSignature, setIncludeSignature] = useState(true);
+  const [customMemo, setCustomMemo] = useState('');
+  const [statementTitle, setStatementTitle] = useState('Monthly Financial Statement');
   const currentMonthStr = format(new Date(), 'yyyy-MM');
   
   const totalSpent = expenses.reduce((sum, exp) => sum + exp.amount, 0);
@@ -1466,6 +1474,18 @@ function Dashboard({ expenses, recurringExpenses, isDarkMode, budgetGoals, userI
             title="Next Month"
           >
             <ChevronRight className="w-5 h-5" />
+          </button>
+          
+          <div className="h-6 w-px bg-gray-200 dark:bg-gray-800 mx-1 hidden sm:block" />
+
+          <button 
+            type="button"
+            onClick={() => setIsPrintModalOpen(true)}
+            className="flex items-center gap-1.5 px-3 py-2 text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl transition-all shadow-md shadow-emerald-100 dark:shadow-none"
+            title="Generate A4 Printable Monthly Statement"
+          >
+            <Printer className="w-4 h-4" />
+            <span>Print Report</span>
           </button>
         </div>
       </div>
@@ -1973,6 +1993,505 @@ function Dashboard({ expenses, recurringExpenses, isDarkMode, budgetGoals, userI
           </div>
         )}
       </div>
+
+      {/* Printable Statement elements via React Portal */}
+      {isPrintModalOpen && createPortal(
+        <div className="fixed inset-0 z-[999] flex flex-col md:flex-row bg-slate-900/95 backdrop-blur-md overflow-hidden text-slate-100 select-none no-print">
+          {/* Sidebar controls */}
+          <div className="w-full md:w-80 bg-slate-950 p-6 flex flex-col justify-between border-b md:border-b-0 md:border-r border-slate-800 overflow-y-auto shrink-0 select-none">
+            <div className="space-y-6">
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-emerald-950 text-emerald-400 rounded-xl">
+                  <Printer className="w-5 h-5 animate-pulse" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-base leading-tight">Print Config</h3>
+                  <p className="text-xs text-slate-400">Statement Layout Settings</p>
+                </div>
+              </div>
+
+              {/* Title setting */}
+              <div className="space-y-2">
+                <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400">Statement Title</label>
+                <input
+                  type="text"
+                  value={statementTitle}
+                  onChange={(e) => setStatementTitle(e.target.value)}
+                  className="w-full px-4 py-2.5 text-sm bg-slate-900 border border-slate-800 rounded-xl focus:ring-1 focus:ring-emerald-500 hover:border-slate-700 outline-none transition-all text-white font-medium"
+                  placeholder="e.g. Monthly Statement"
+                />
+              </div>
+
+              {/* Toggles */}
+              <div className="space-y-3">
+                <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400">Layout Options</label>
+                
+                <label className="flex items-center gap-3 p-3 bg-slate-900/60 hover:bg-slate-900 rounded-xl cursor-pointer transition-all border border-slate-800/50 hover:border-slate-800">
+                  <input
+                    type="checkbox"
+                    checked={includeTransactions}
+                    onChange={(e) => setIncludeTransactions(e.target.checked)}
+                    className="rounded border-slate-800 text-emerald-600 focus:ring-emerald-500 bg-slate-950 w-4 h-4"
+                  />
+                  <div>
+                    <p className="text-xs font-bold">Transaction Ledger</p>
+                    <p className="text-[10px] text-slate-400">List all expense items</p>
+                  </div>
+                </label>
+
+                <label className="flex items-center gap-3 p-3 bg-slate-900/60 hover:bg-slate-900 rounded-xl cursor-pointer transition-all border border-slate-800/50 hover:border-slate-800">
+                  <input
+                    type="checkbox"
+                    checked={includeSignature}
+                    onChange={(e) => setIncludeSignature(e.target.checked)}
+                    className="rounded border-slate-800 text-emerald-600 focus:ring-emerald-500 bg-slate-950 w-4 h-4"
+                  />
+                  <div>
+                    <p className="text-xs font-bold">Signature Area</p>
+                    <p className="text-[10px] text-slate-400">Include auth approval block</p>
+                  </div>
+                </label>
+              </div>
+
+              {/* Custom Memo/Remarks */}
+              <div className="space-y-2">
+                <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400">Statement Memo / Remarks</label>
+                <textarea
+                  value={customMemo}
+                  onChange={(e) => setCustomMemo(e.target.value)}
+                  rows={4}
+                  className="w-full px-4 py-2.5 text-sm bg-slate-900 border border-slate-800 rounded-xl focus:ring-1 focus:ring-emerald-500 hover:border-slate-700 outline-none transition-all text-white leading-relaxed resize-none font-sans"
+                  placeholder="Type any remarks or comments to include at the bottom..."
+                />
+              </div>
+            </div>
+
+            {/* Action buttons */}
+            <div className="mt-8 space-y-3">
+              <button
+                type="button"
+                onClick={() => window.print()}
+                className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold flex items-center justify-center gap-2 transition-all shadow-lg shadow-emerald-950"
+              >
+                <Printer className="w-4 h-4" />
+                Print Statement (A4)
+              </button>
+              
+              <button
+                type="button"
+                onClick={() => setIsPrintModalOpen(false)}
+                className="w-full py-3 bg-slate-800 hover:bg-slate-750 text-slate-200 rounded-xl font-semibold transition-colors border border-slate-700/50"
+              >
+                Close Preview
+              </button>
+            </div>
+          </div>
+
+          {/* Interactive Document Preview Area */}
+          <div className="flex-1 overflow-y-auto p-4 md:p-12 flex justify-center bg-slate-900 scrollbar-thin select-text">
+            {/* Virtual white paper preview box resembling the final printed statement perfectly */}
+            <div className="w-[210mm] min-h-[297mm] p-16 bg-white text-slate-900 shadow-2xl relative border border-slate-200 pointer-events-auto flex flex-col justify-between rounded-sm">
+              <div>
+                {/* Statement header */}
+                <div className="flex justify-between items-start border-b-2 border-slate-200 pb-8 mb-8">
+                  <div>
+                    <h1 className="text-3xl font-extrabold tracking-tight text-slate-900 uppercase font-serif">
+                      {statementTitle}
+                    </h1>
+                    <p className="text-xs text-slate-500 mt-1 uppercase tracking-widest font-sans font-bold">
+                      Expense Analyzer Secure Financial Document
+                    </p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-xl font-bold text-emerald-600 font-sans">
+                      {format(parse(selectedDashboardMonth, 'yyyy-MM', new Date()), 'MMMM yyyy')}
+                    </p>
+                    <p className="text-[10px] uppercase font-bold tracking-wider text-slate-400 mt-1 font-sans">
+                      STATUS: {totalMonthSpent <= totalMonthBudgetLimit || totalMonthBudgetLimit === 0 ? "WITHIN LIMIT" : "LIMIT EXCEEDED"}
+                    </p>
+                  </div>
+                </div>
+
+                {/* Meta details grid */}
+                <div className="grid grid-cols-2 gap-x-8 gap-y-4 text-xs mb-8 p-5 bg-slate-50 rounded-xl border border-slate-100 font-sans">
+                  <div>
+                    <p className="text-[10px] uppercase tracking-wider font-bold text-slate-400">Statement Subject</p>
+                    <p className="font-bold text-slate-800 mt-0.5 text-sm">{user?.displayName || "Account Holder"}</p>
+                    <p className="text-slate-500">{user?.email || "n/a"}</p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] uppercase tracking-wider font-bold text-slate-400">Document Issued On</p>
+                    <p className="font-bold text-slate-800 mt-0.5 text-sm">{format(new Date(), 'MMMM dd, yyyy')}</p>
+                    <p className="text-slate-500">{format(new Date(), 'hh:mm a (O)')}</p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] uppercase tracking-wider font-bold text-slate-400">Period Interval</p>
+                    <p className="font-bold text-slate-800 mt-0.5 text-sm">
+                      {format(startOfMonth(parse(selectedDashboardMonth, 'yyyy-MM', new Date())), 'MMM dd, yyyy')} - {format(endOfMonth(parse(selectedDashboardMonth, 'yyyy-MM', new Date())), 'MMM dd, yyyy')}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] uppercase tracking-wider font-bold text-slate-400">Client Reference ID</p>
+                    <p className="font-mono text-slate-600 mt-0.5 font-bold">REF-{userId.slice(0, 12).toUpperCase()}</p>
+                  </div>
+                </div>
+
+                {/* Overview boxes */}
+                <div className="grid grid-cols-3 gap-4 mb-8 text-left font-sans">
+                  <div className="p-4 rounded-xl border border-slate-200">
+                    <p className="text-[10px] uppercase tracking-wider font-bold text-slate-400">Total Spent For Month</p>
+                    <p className="text-xl font-bold text-slate-950 mt-1">₹{totalMonthSpent.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</p>
+                  </div>
+                  <div className="p-4 rounded-xl border border-slate-200">
+                    <p className="text-[10px] uppercase tracking-wider font-bold text-slate-400">Total Monthly Budget</p>
+                    <p className="text-xl font-bold text-slate-950 mt-1">
+                      {totalMonthBudgetLimit > 0 ? `₹${totalMonthBudgetLimit.toLocaleString('en-IN', { minimumFractionDigits: 2 })}` : "No Limit Set"}
+                    </p>
+                  </div>
+                  <div className="p-4 rounded-xl border border-slate-200">
+                    <p className="text-[10px] uppercase tracking-wider font-bold text-slate-400">Net Surplus Position</p>
+                    {totalMonthBudgetLimit > 0 ? (
+                      <p className={cn("text-xl font-bold mt-1", totalMonthBudgetLimit - totalMonthSpent >= 0 ? "text-emerald-600" : "text-rose-600")}>
+                        {totalMonthBudgetLimit - totalMonthSpent >= 0 ? "+" : ""}
+                        ₹{(totalMonthBudgetLimit - totalMonthSpent).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                      </p>
+                    ) : (
+                      <p className="text-xl font-bold text-slate-400 mt-1">Unlimited</p>
+                    )}
+                  </div>
+                </div>
+
+                {/* Categories Table */}
+                <div className="mb-8 avoid-break">
+                  <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-3 font-sans">Category Performance & Limits</h3>
+                  <table className="w-full text-left text-xs border-collapse">
+                    <thead>
+                      <tr className="border-b border-slate-300 text-slate-500 bg-slate-50 font-bold">
+                        <th className="px-3 py-2 rounded-l-lg">Sector Category</th>
+                        <th className="px-3 py-2 text-right">Allocated Budget</th>
+                        <th className="px-3 py-2 text-right">Actual Spendings</th>
+                        <th className="px-3 py-2 text-right">Utilization Rate (%)</th>
+                        <th className="px-3 py-2 text-right rounded-r-lg">Limit Status</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {Object.keys(CATEGORY_COLORS).map(cat => {
+                        const spent = monthCategoryData[cat] || 0;
+                        const specBudget = monthBudgets.find(b => b.category === cat);
+                        const budgetLim = specBudget ? specBudget.amount : 0;
+                        
+                        // If no spending and no budget, skip rendering in formal clean table
+                        if (spent === 0 && budgetLim === 0) return null;
+                        
+                        const percentRatio = budgetLim > 0 ? (spent / budgetLim) * 100 : 0;
+                        const isOver = budgetLim > 0 && spent > budgetLim;
+
+                        return (
+                          <tr key={cat} className="hover:bg-slate-50 text-slate-800">
+                            <td className="px-3 py-3 font-semibold flex items-center gap-2">
+                              <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: CATEGORY_COLORS[cat] }} />
+                              {cat}
+                            </td>
+                            <td className="px-3 py-3 text-right font-mono text-slate-500">
+                              {budgetLim > 0 ? `₹${budgetLim.toLocaleString('en-IN', { minimumFractionDigits: 0 })}` : "Flexible"}
+                            </td>
+                            <td className="px-3 py-3 text-right font-mono font-medium">
+                              ₹{spent.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                            </td>
+                            <td className="px-3 py-3 text-right font-mono text-slate-600">
+                              {budgetLim > 0 ? `${percentRatio.toFixed(0)}%` : "-"}
+                            </td>
+                            <td className={cn("px-3 py-3 text-right font-semibold", isOver ? "text-rose-600" : spent > 0 ? "text-emerald-600" : "text-slate-400")}>
+                              {budgetLim > 0 ? (isOver ? `Over by ₹${(spent - budgetLim).toFixed(0)}` : "Within Limit") : "Flexible Allowed"}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                      {Object.keys(monthCategoryData).length === 0 && (
+                        <tr>
+                          <td colSpan={5} className="py-6 text-center text-slate-400 italic">
+                            No recorded transaction records found in categorization fields for this month.
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* Transaction Ledger list */}
+                {includeTransactions && (
+                  <div className="mb-8">
+                    <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-3 font-sans">Statement Ledger Account History</h3>
+                    <table className="w-full text-left text-xs border-collapse">
+                      <thead>
+                        <tr className="border-b border-slate-300 text-slate-500 bg-slate-50 font-bold">
+                          <th className="px-3 py-2 rounded-l-lg">Date</th>
+                          <th className="px-3 py-2">Transaction Details / Vendor</th>
+                          <th className="px-3 py-2 text-right">Category</th>
+                          <th className="px-3 py-2 text-right rounded-r-lg">Value (INR)</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100 text-slate-700">
+                        {monthExpenses.map((exp) => (
+                          <tr key={exp.id} className="hover:bg-slate-50 border-b border-slate-100">
+                            <td className="px-3 py-2.5 font-mono text-slate-500">
+                              {format(parse(exp.date, 'yyyy-MM-dd', new Date()), 'dd MMM yyyy')}
+                            </td>
+                            <td className="px-3 py-2.5 font-medium text-slate-900">
+                              {exp.description}
+                            </td>
+                            <td className="px-3 py-2.5 text-right">
+                              <span className="px-2 py-0.5 rounded text-[10px] font-bold tracking-tight uppercase" style={{ backgroundColor: `${CATEGORY_COLORS[exp.category] || CATEGORY_COLORS.Other}15`, color: CATEGORY_COLORS[exp.category] || CATEGORY_COLORS.Other }}>
+                                {exp.category}
+                              </span>
+                            </td>
+                            <td className="px-3 py-2.5 text-right font-mono font-bold text-slate-900">
+                              ₹{exp.amount.toFixed(2)}
+                            </td>
+                          </tr>
+                        ))}
+                        {monthExpenses.length === 0 && (
+                          <tr>
+                            <td colSpan={4} className="py-8 text-center text-slate-400 italic">
+                              No matching transaction records found in the intervals of the selected month statement.
+                            </td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+
+                {/* Custom Memo/Remarks panel */}
+                {customMemo.trim() !== '' && (
+                  <div className="mb-8 p-5 bg-slate-50 rounded-xl border border-slate-200 avoid-break font-sans">
+                    <h4 className="text-[10px] uppercase tracking-wider font-bold text-slate-400 mb-1.5 font-sans">Report Analyst Remarks / Memo</h4>
+                    <p className="text-xs text-slate-700 leading-relaxed italic whitespace-pre-wrap">
+                      "{customMemo}"
+                    </p>
+                  </div>
+                )}
+              </div>
+
+              {/* Signature Section / Bottom footer */}
+              <div className="mt-8 border-t border-slate-200 pt-8 avoid-break font-sans">
+                {includeSignature && (
+                  <div className="grid grid-cols-2 gap-12 text-xs mb-8">
+                    <div>
+                      <p className="text-[10px] uppercase tracking-wider font-bold text-slate-400">PREPARED & CERTIFIED BY</p>
+                      <div className="h-10 border-b border-slate-300 mt-2 flex items-end pb-1 font-serif text-slate-600 italic font-bold">
+                        {user?.displayName || "Account HolderSignature"}
+                      </div>
+                      <p className="text-[10px] text-slate-400 mt-1 font-sans">E-Authenticated Representative Signature</p>
+                    </div>
+                    <div>
+                      <p className="text-[10px] uppercase tracking-wider font-bold text-slate-400">AUDITOR APPROVAL BLOCK</p>
+                      <div className="h-10 border-b border-slate-300 mt-2"></div>
+                      <p className="text-[10px] text-slate-400 mt-1 font-sans">Date: ________________________</p>
+                    </div>
+                  </div>
+                )}
+
+                <div className="flex justify-between items-center text-[10px] text-slate-400">
+                  <p>System Generated Secure Document – End of Report – Record ID: {user?.uid.slice(0, 12).toUpperCase()}</p>
+                  <p className="font-mono">Page 1 of 1</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
+
+      {/* Persistence printable statement TARGET for browsers to print */}
+      {isPrintModalOpen && createPortal(
+        <div id="printable-statement-target" className="hidden print:block font-sans text-black bg-white select-text">
+          <div className="print-page p-12 bg-white text-black flex flex-col justify-between" style={{ minHeight: '297mm' }}>
+            <div>
+              {/* Statement header */}
+              <div className="flex justify-between items-start border-b-2 border-slate-300 pb-6 mb-6">
+                <div>
+                  <h1 className="text-3xl font-bold tracking-tight text-black font-serif">
+                    {statementTitle}
+                  </h1>
+                  <p className="text-xs text-slate-600 mt-1 uppercase tracking-widest font-semibold font-sans">
+                    Secure Monthly Financial Statement
+                  </p>
+                </div>
+                <div className="text-right">
+                  <p className="text-xl font-bold text-slate-900">
+                    {format(parse(selectedDashboardMonth, 'yyyy-MM', new Date()), 'MMMM yyyy')}
+                  </p>
+                  <p className="text-[10px] uppercase font-bold tracking-wider text-slate-600 mt-1">STATUS: {totalMonthSpent <= totalMonthBudgetLimit || totalMonthBudgetLimit === 0 ? "WITHIN BUDGET LIMIT" : "BUDGET OVERDRAWN"}</p>
+                </div>
+              </div>
+
+              {/* Meta details grid */}
+              <div className="grid grid-cols-2 gap-x-8 gap-y-3 text-xs mb-6 p-4 bg-slate-50 border border-slate-200">
+                <div>
+                  <p className="text-[9px] uppercase tracking-wider font-bold text-slate-500">Statement Owner</p>
+                  <p className="font-bold text-slate-900 mt-0.5">{user?.displayName}</p>
+                  <p className="text-slate-600">{user?.email}</p>
+                </div>
+                <div>
+                  <p className="text-[9px] uppercase tracking-wider font-bold text-slate-500">Document Issued On</p>
+                  <p className="font-bold text-slate-900 mt-0.5">{format(new Date(), 'MMMM dd, yyyy')}</p>
+                  <p className="text-slate-600">{format(new Date(), 'hh:mm a (O)')}</p>
+                </div>
+                <div>
+                  <p className="text-[9px] uppercase tracking-wider font-bold text-slate-500">Statement Period</p>
+                  <p className="font-bold text-slate-900 mt-0.5">
+                    {format(startOfMonth(parse(selectedDashboardMonth, 'yyyy-MM', new Date())), 'MMM dd, yyyy')} - {format(endOfMonth(parse(selectedDashboardMonth, 'yyyy-MM', new Date())), 'MMM dd, yyyy')}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-[9px] uppercase tracking-wider font-bold text-slate-500">Accounts Reference</p>
+                  <p className="font-mono text-slate-700 mt-0.5">ID-{userId.toUpperCase()}</p>
+                </div>
+              </div>
+
+              {/* Overview boxes */}
+              <div className="grid grid-cols-3 gap-4 mb-6 text-center sm:text-left">
+                <div className="p-4 border border-slate-300">
+                  <p className="text-[10px] uppercase tracking-wider font-bold text-slate-500">Total Monthly Spend</p>
+                  <p className="text-lg font-bold text-slate-950 mt-1">₹{totalMonthSpent.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</p>
+                </div>
+                <div className="p-4 border border-slate-300">
+                  <p className="text-[10px] uppercase tracking-wider font-bold text-slate-500">Sovereign Budget Limit</p>
+                  <p className="text-lg font-bold text-slate-950 mt-1">
+                    {totalMonthBudgetLimit > 0 ? `₹${totalMonthBudgetLimit.toLocaleString('en-IN', { minimumFractionDigits: 2 })}` : "No Limit Set"}
+                  </p>
+                </div>
+                <div className="p-4 border border-slate-300">
+                  <p className="text-[10px] uppercase tracking-wider font-bold text-slate-500">Net Surplus Position</p>
+                  {totalMonthBudgetLimit > 0 ? (
+                    <p className={cn("text-lg font-bold mt-1", totalMonthBudgetLimit - totalMonthSpent >= 0 ? "text-slate-900 font-bold" : "text-red-700 font-bold")}>
+                      {totalMonthBudgetLimit - totalMonthSpent >= 0 ? "+" : ""}
+                      ₹{(totalMonthBudgetLimit - totalMonthSpent).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                    </p>
+                  ) : (
+                    <p className="text-lg font-bold text-slate-500 mt-1">No limit</p>
+                  )}
+                </div>
+              </div>
+
+              {/* Categories Table */}
+              <div className="mb-6 avoid-break">
+                <h3 className="text-xs font-bold uppercase tracking-wider text-slate-600 mb-2 font-serif">Category Performance Ledger</h3>
+                <table className="w-full text-left text-xs border-collapse">
+                  <thead>
+                    <tr className="border-b border-slate-400 text-slate-700 bg-slate-100 font-bold">
+                      <th className="px-3 py-2">Category</th>
+                      <th className="px-3 py-2 text-right">Allocated Budget</th>
+                      <th className="px-3 py-2 text-right">Actual Spendings</th>
+                      <th className="px-3 py-2 text-right">Utilization (%)</th>
+                      <th className="px-3 py-2 text-right">Alert Status</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-200">
+                    {Object.keys(CATEGORY_COLORS).map(cat => {
+                      const spent = monthCategoryData[cat] || 0;
+                      const specBudget = monthBudgets.find(b => b.category === cat);
+                      const budgetLim = specBudget ? specBudget.amount : 0;
+                      
+                      if (spent === 0 && budgetLim === 0) return null;
+                      
+                      const percentRatio = budgetLim > 0 ? (spent / budgetLim) * 100 : 0;
+                      const isOver = budgetLim > 0 && spent > budgetLim;
+
+                      return (
+                        <tr key={cat} className="text-slate-900">
+                          <td className="px-3 py-1.5 font-bold">
+                            {cat}
+                          </td>
+                          <td className="px-3 py-1.5 text-right font-mono text-slate-600">
+                            {budgetLim > 0 ? `₹${budgetLim.toLocaleString('en-IN', { minimumFractionDigits: 0 })}` : "Flexible"}
+                          </td>
+                          <td className="px-3 py-1.5 text-right font-mono font-bold">
+                            ₹{spent.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                          </td>
+                          <td className="px-3 py-1.5 text-right font-mono text-slate-600">
+                            {budgetLim > 0 ? `${percentRatio.toFixed(0)}%` : "-"}
+                          </td>
+                          <td className={cn("px-3 py-1.5 text-right font-semibold", isOver ? "text-red-700" : "text-slate-850")}>
+                            {budgetLim > 0 ? (isOver ? `Over budget by ₹${(spent - budgetLim).toFixed(0)}` : "Authorized") : "Authorized"}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Print customized Transaction list */}
+              {includeTransactions && (
+                <div className="mb-6">
+                  <h3 className="text-xs font-bold uppercase tracking-wider text-slate-600 mb-2 font-serif font-bold">Comprehensive Ledger Details</h3>
+                  <table className="w-full text-left text-[11px] border-collapse">
+                    <thead>
+                      <tr className="border-b border-slate-400 text-slate-700 bg-slate-100 font-bold">
+                        <th className="px-3 py-2">Date</th>
+                        <th className="px-3 py-2">Vendor & Description</th>
+                        <th className="px-3 py-2 text-right">Category</th>
+                        <th className="px-3 py-2 text-right">Sum Value</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-200 text-slate-800">
+                      {monthExpenses.map((exp) => (
+                        <tr key={exp.id} className="border-b border-slate-100" style={{ pageBreakInside: 'avoid' }}>
+                          <td className="px-3 py-1 border-slate-100 font-mono text-slate-600 text-[10px]">
+                            {format(parse(exp.date, 'yyyy-MM-dd', new Date()), 'dd MMM yyyy')}
+                          </td>
+                          <td className="px-3 py-1 border-slate-100 font-sans text-slate-900 leading-snug">
+                            {exp.description}
+                          </td>
+                          <td className="px-3 py-1 border-slate-100 text-right uppercase tracking-tight text-[9px] text-slate-600 font-bold">
+                            {exp.category}
+                          </td>
+                          <td className="px-3 py-1 border-slate-100 text-right font-mono font-bold text-black font-semibold">
+                            ₹{exp.amount.toFixed(2)}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
+              {/* Memo printed remarks */}
+              {customMemo.trim() !== '' && (
+                <div className="mb-6 p-4 bg-slate-50 border border-slate-300 avoid-break leading-relaxed font-serif text-xs italic">
+                  <strong>Notes:</strong> {customMemo}
+                </div>
+              )}
+            </div>
+
+            {/* Print Signature lines & Statement Footnote */}
+            <div className="avoid-break pt-6 border-t border-slate-300 mt-6">
+              {includeSignature && (
+                <div className="grid grid-cols-2 gap-12 text-xs mb-6">
+                  <div>
+                    <p className="text-[9px] uppercase tracking-wider font-bold text-slate-600 font-bold">PREPARED BY NAME</p>
+                    <div className="h-8 border-b border-slate-400 mt-2 flex items-end pb-1 font-serif italic text-black font-bold">
+                      {user?.displayName}
+                    </div>
+                  </div>
+                  <div>
+                    <p className="text-[9px] uppercase tracking-wider font-bold text-slate-600 font-bold font-bold">APPROVED WITH SIGNATURE</p>
+                    <div className="h-8 border-b border-slate-400 mt-2"></div>
+                  </div>
+                </div>
+              )}
+
+              <div className="flex justify-between items-center text-[9px] text-slate-600 font-sans font-bold">
+                <p>Expense Analyzer Official Record. ID: {user?.uid.toUpperCase()}</p>
+                <p>Printed: {format(new Date(), 'yyyy-MM-dd HH:mm_UTC')}</p>
+              </div>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
     </div>
   );
 }

@@ -1,2 +1,77 @@
 @import "tailwindcss";
 @custom-variant dark (&:where(.dark, .dark *));
+
+@layer utilities {
+  @media print {
+    /* Hide everything by default under app-root or when printing */
+    body {
+      background-color: white !important;
+      color: black !important;
+      font-size: 12pt;
+      line-height: 1.5;
+    }
+    
+    .no-print {
+      display: none !important;
+    }
+    
+    .print-only {
+      display: block !important;
+    }
+
+    /* Target the main application container and hide it during print */
+    #app-container, header, main, footer, .modal-backdrop {
+      display: none !important;
+    }
+
+    /* Force the printable statement to be the only visible container */
+    #printable-statement-target {
+      display: block !important;
+      position: absolute;
+      left: 0;
+      top: 0;
+      width: 100% !important;
+      margin: 0 !important;
+      padding: 0 !important;
+      background: white !important;
+      color: black !important;
+      box-shadow: none !important;
+      border: none !important;
+    }
+
+    /* Page breaks and sizing */
+    .print-page {
+      width: 210mm;
+      min-height: 297mm;
+      margin: 0 auto;
+      background: white !important;
+      page-break-after: always;
+    }
+
+    .print-page:last-child {
+      page-break-after: avoid;
+    }
+
+    .avoid-break {
+      page-break-inside: avoid !important;
+    }
+
+    /* Table borders and text clarity for print */
+    table {
+      page-break-inside: auto;
+    }
+    
+    tr {
+      page-break-inside: avoid;
+      page-break-after: auto;
+    }
+
+    /* Ensure text colors are printed correctly */
+    * {
+      -webkit-print-color-adjust: exact !important;
+      print-color-adjust: exact !important;
+      color-adjust: exact !important;
+    }
+  }
+}
+
