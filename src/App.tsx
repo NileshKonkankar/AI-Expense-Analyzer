@@ -1543,7 +1543,7 @@ function Dashboard({ expenses, recurringExpenses, isDarkMode, budgetGoals, userI
             <PieChartIcon className="w-4 h-4 text-gray-500 dark:text-gray-400" />
             Spending by Category
           </h3>
-          <div className="h-64">
+          <div key={selectedDashboardMonth} className="h-64">
             {pieData.length > 0 ? (
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
@@ -1557,6 +1557,9 @@ function Dashboard({ expenses, recurringExpenses, isDarkMode, budgetGoals, userI
                     dataKey="value"
                     stroke={isDarkMode ? '#111827' : '#FFFFFF'}
                     strokeWidth={2}
+                    isAnimationActive={true}
+                    animationDuration={800}
+                    animationEasing="ease-out"
                   >
                     {pieData.map((entry, index) => (
                       <Cell key={`cell-${index}`} fill={CATEGORY_COLORS[entry.name] || CATEGORY_COLORS.Other} />
@@ -1580,7 +1583,7 @@ function Dashboard({ expenses, recurringExpenses, isDarkMode, budgetGoals, userI
             <TrendingUp className="w-4 h-4 text-gray-500 dark:text-gray-400" />
             Last 7 Days
           </h3>
-          <div className="h-64">
+          <div key={expenses.length} className="h-64">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={barData}>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={isDarkMode ? '#374151' : '#E5E7EB'} />
@@ -1592,7 +1595,15 @@ function Dashboard({ expenses, recurringExpenses, isDarkMode, budgetGoals, userI
                   contentStyle={tooltipStyle}
                   itemStyle={{ color: isDarkMode ? '#F9FAFB' : '#111827' }}
                 />
-                <Bar dataKey="amount" fill="#3B82F6" radius={[4, 4, 0, 0]} maxBarSize={40} />
+                <Bar 
+                  dataKey="amount" 
+                  fill="#3B82F6" 
+                  radius={[4, 4, 0, 0]} 
+                  maxBarSize={40}
+                  isAnimationActive={true}
+                  animationDuration={800}
+                  animationEasing="ease-out"
+                />
               </BarChart>
             </ResponsiveContainer>
           </div>
@@ -1605,7 +1616,7 @@ function Dashboard({ expenses, recurringExpenses, isDarkMode, budgetGoals, userI
           <Activity className="w-4 h-4 text-gray-500 dark:text-gray-400" />
           Monthly Spending Pattern ({format(selectedDate, 'MMMM')})
         </h3>
-        <div className="h-64 w-full">
+        <div key={selectedDashboardMonth} className="h-64 w-full">
           <ResponsiveContainer width="100%" height="100%">
             <AreaChart data={monthDailyData}>
               <defs>
@@ -1641,6 +1652,9 @@ function Dashboard({ expenses, recurringExpenses, isDarkMode, budgetGoals, userI
                 fillOpacity={1} 
                 fill="url(#colorAmount)" 
                 strokeWidth={2}
+                isAnimationActive={true}
+                animationDuration={800}
+                animationEasing="ease-out"
               />
             </AreaChart>
           </ResponsiveContainer>
@@ -1711,7 +1725,7 @@ function Dashboard({ expenses, recurringExpenses, isDarkMode, budgetGoals, userI
         </div>
 
         {/* Comparison Chart */}
-        <div className="h-72 w-full mb-6">
+        <div key={`${compareRange}-${compareChartType}`} className="h-72 w-full mb-6">
           <ResponsiveContainer width="100%" height="100%">
             <BarChart data={multiMonthData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
               <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={isDarkMode ? '#374151' : '#E5E7EB'} />
@@ -1741,8 +1755,26 @@ function Dashboard({ expenses, recurringExpenses, isDarkMode, budgetGoals, userI
               />
               {compareChartType === 'total' ? (
                 <>
-                  <Bar dataKey="spent" name="Spent" fill="#4f46e5" radius={[4, 4, 0, 0]} maxBarSize={30} />
-                  <Bar dataKey="budget" name="Budget Limit" fill="#10b981" radius={[4, 4, 0, 0]} maxBarSize={30} />
+                  <Bar 
+                    dataKey="spent" 
+                    name="Spent" 
+                    fill="#4f46e5" 
+                    radius={[4, 4, 0, 0]} 
+                    maxBarSize={30}
+                    isAnimationActive={true}
+                    animationDuration={800}
+                    animationEasing="ease-out"
+                  />
+                  <Bar 
+                    dataKey="budget" 
+                    name="Budget Limit" 
+                    fill="#10b981" 
+                    radius={[4, 4, 0, 0]} 
+                    maxBarSize={30}
+                    isAnimationActive={true}
+                    animationDuration={800}
+                    animationEasing="ease-out"
+                  />
                 </>
               ) : (
                 Object.keys(CATEGORY_COLORS).map((category) => (
@@ -1753,6 +1785,9 @@ function Dashboard({ expenses, recurringExpenses, isDarkMode, budgetGoals, userI
                     stackId="a" 
                     fill={CATEGORY_COLORS[category]} 
                     maxBarSize={40}
+                    isAnimationActive={true}
+                    animationDuration={800}
+                    animationEasing="ease-out"
                   />
                 ))
               )}
