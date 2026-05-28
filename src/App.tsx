@@ -24,6 +24,16 @@ interface Expense {
   createdAt: any;
 }
 
+interface Income {
+  id: string;
+  userId: string;
+  description: string;
+  amount: number;
+  category: string;
+  date: string;
+  createdAt: any;
+}
+
 interface RecurringExpense {
   id: string;
   userId: string;
@@ -62,6 +72,62 @@ const CATEGORY_COLORS: Record<string, string> = {
   Health: '#14B8A6',
   Other: '#6B7280',
 };
+
+const INCOME_CATEGORY_COLORS: Record<string, string> = {
+  Salary: '#10B981',
+  Freelance: '#06B6D4',
+  Investments: '#3B82F6',
+  Refunds: '#F59E0B',
+  Grants: '#8B5CF6',
+  Other: '#6B7280',
+};
+
+enum OperationType {
+  CREATE = 'create',
+  UPDATE = 'update',
+  DELETE = 'delete',
+  LIST = 'list',
+  GET = 'get',
+  WRITE = 'write',
+}
+
+interface FirestoreErrorInfo {
+  error: string;
+  operationType: OperationType;
+  path: string | null;
+  authInfo: {
+    userId?: string | null;
+    email?: string | null;
+    emailVerified?: boolean | null;
+    isAnonymous?: boolean | null;
+    tenantId?: string | null;
+    providerInfo?: {
+      providerId?: string | null;
+      email?: string | null;
+    }[];
+  }
+}
+
+function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
+  const errInfo: FirestoreErrorInfo = {
+    error: error instanceof Error ? error.message : String(error),
+    authInfo: {
+      userId: auth.currentUser?.uid,
+      email: auth.currentUser?.email,
+      emailVerified: auth.currentUser?.emailVerified,
+      isAnonymous: auth.currentUser?.isAnonymous,
+      tenantId: auth.currentUser?.tenantId,
+      providerInfo: auth.currentUser?.providerData?.map(provider => ({
+        providerId: provider.providerId,
+        email: provider.email,
+      })) || []
+    },
+    operationType,
+    path
+  }
+  console.error('Firestore Error: ', JSON.stringify(errInfo));
+  throw new Error(JSON.stringify(errInfo));
+}
 
 // --- Helper Hook ---
 function useClickOutside(ref: React.RefObject<HTMLDivElement | null>, handler: () => void) {
@@ -233,11 +299,13 @@ export default function App() {
   const [user, setUser] = useState<any>(null);
   const [isAuthReady, setIsAuthReady] = useState(false);
   const [expenses, setExpenses] = useState<Expense[]>([]);
+  const [incomes, setIncomes] = useState<Income[]>([]);
   const [recurringExpenses, setRecurringExpenses] = useState<RecurringExpense[]>([]);
   const [categoryRules, setCategoryRules] = useState<CategoryRule[]>([]);
   const [budgetGoals, setBudgetGoals] = useState<BudgetGoal[]>([]);
   const [loading, setLoading] = useState(true);
   const [isDarkMode, setIsDarkMode] = useState(false);
+  const [activeLeftTab, setActiveLeftTab] = useState<'expenses' | 'incomes'>('expenses');
 
   useEffect(() => {
     if (localStorage.theme === 'dark' || (!('theme' in localStorage) && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
@@ -274,6 +342,7 @@ export default function App() {
     
     if (!user) {
       setExpenses([]);
+      setIncomes([]);
       setRecurringExpenses([]);
       setCategoryRules([]);
       setBudgetGoals([]);
@@ -295,8 +364,24 @@ export default function App() {
       setExpenses(expensesData);
       setLoading(false);
     }, (error) => {
-      console.error("Firestore Error: ", error);
+      handleFirestoreError(error, OperationType.LIST, 'expenses');
       setLoading(false);
+    });
+
+    const qIncomes = query(
+      collection(db, 'incomes'),
+      where('userId', '==', user.uid),
+      orderBy('date', 'desc')
+    );
+
+    const unsubscribeIncomes = onSnapshot(qIncomes, (snapshot) => {
+      const incomesData = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      })) as Income[];
+      setIncomes(incomesData);
+    }, (error) => {
+      handleFirestoreError(error, OperationType.LIST, 'incomes');
     });
 
     const qRecurring = query(
@@ -310,6 +395,8 @@ export default function App() {
         ...doc.data()
       })) as RecurringExpense[];
       setRecurringExpenses(recurringData);
+    }, (error) => {
+      handleFirestoreError(error, OperationType.LIST, 'recurringExpenses');
     });
 
     const qRules = query(
@@ -322,6 +409,8 @@ export default function App() {
         id: doc.id,
         ...doc.data()
       })) as CategoryRule[]);
+    }, (error) => {
+      handleFirestoreError(error, OperationType.LIST, 'categoryRules');
     });
 
     const qBudgets = query(
@@ -334,10 +423,13 @@ export default function App() {
         id: doc.id,
         ...doc.data()
       })) as BudgetGoal[]);
+    }, (error) => {
+      handleFirestoreError(error, OperationType.LIST, 'categoryBudgets');
     });
 
     return () => {
       unsubscribe();
+      unsubscribeIncomes();
       unsubscribeRecurring();
       unsubscribeRules();
       unsubscribeBudgets();
@@ -419,17 +511,61 @@ export default function App() {
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-          {/* Left Column: Form & List */}
-          <div className="lg:col-span-1 space-y-8">
-            <ExpenseForm userId={user.uid} expenses={expenses} categoryRules={categoryRules} />
-            <ExpenseList expenses={expenses} />
-            <CategoryRulesList categoryRules={categoryRules} userId={user.uid} />
-            <RecurringExpenseList recurringExpenses={recurringExpenses} />
+          {/* Left Column: Switcher & List */}
+          <div className="lg:col-span-1 space-y-6">
+            <div className="flex bg-gray-100 dark:bg-gray-800/60 p-1.5 rounded-2xl border border-gray-200/50 dark:border-gray-800/80 gap-2 shadow-inner">
+              <button
+                onClick={() => setActiveLeftTab('expenses')}
+                className={cn(
+                  "flex-1 py-2 text-xs font-bold rounded-xl transition-all uppercase tracking-wider flex items-center justify-center gap-1.5",
+                  activeLeftTab === 'expenses'
+                    ? "bg-white dark:bg-gray-900 text-blue-600 dark:text-blue-400 shadow-sm border border-gray-100 dark:border-gray-800"
+                    : "text-gray-500 hover:text-gray-800 dark:hover:text-gray-200"
+                )}
+              >
+                <DollarSign className="w-4 h-4" />
+                Expenses
+              </button>
+              <button
+                onClick={() => setActiveLeftTab('incomes')}
+                className={cn(
+                  "flex-1 py-2 text-xs font-bold rounded-xl transition-all uppercase tracking-wider flex items-center justify-center gap-1.5",
+                  activeLeftTab === 'incomes'
+                    ? "bg-white dark:bg-gray-900 text-emerald-600 dark:text-emerald-400 shadow-sm border border-gray-100 dark:border-gray-800"
+                    : "text-gray-500 hover:text-gray-800 dark:hover:text-gray-200"
+                )}
+              >
+                <TrendingUp className="w-4 h-4" />
+                Incomes
+              </button>
+            </div>
+
+            {activeLeftTab === 'expenses' ? (
+              <div className="space-y-8 animate-in fade-in slide-in-from-bottom-2 duration-200">
+                <ExpenseForm userId={user.uid} expenses={expenses} categoryRules={categoryRules} />
+                <ExpenseList expenses={expenses} />
+                <CategoryRulesList categoryRules={categoryRules} userId={user.uid} />
+                <RecurringExpenseList recurringExpenses={recurringExpenses} />
+              </div>
+            ) : (
+              <div className="space-y-8 animate-in fade-in slide-in-from-bottom-2 duration-200">
+                <IncomeForm userId={user.uid} />
+                <IncomeList incomes={incomes} />
+              </div>
+            )}
           </div>
 
           {/* Right Column: Dashboard & Insights */}
           <div className="lg:col-span-2 space-y-8">
-            <Dashboard expenses={expenses} recurringExpenses={recurringExpenses} isDarkMode={isDarkMode} budgetGoals={budgetGoals} userId={user.uid} user={user} />
+            <Dashboard 
+              expenses={expenses} 
+              incomes={incomes}
+              recurringExpenses={recurringExpenses} 
+              isDarkMode={isDarkMode} 
+              budgetGoals={budgetGoals} 
+              userId={user.uid} 
+              user={user} 
+            />
             <AIInsights expenses={expenses} />
           </div>
         </div>
@@ -947,6 +1083,296 @@ function ExpenseList({ expenses }: { expenses: Expense[] }) {
   );
 }
 
+function IncomeForm({ userId }: { userId: string }) {
+  const [description, setDescription] = useState('');
+  const [amount, setAmount] = useState('');
+  const [date, setDate] = useState(format(new Date(), 'yyyy-MM-dd'));
+  const [category, setCategory] = useState('Salary');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!description || !amount || !date || !category) return;
+
+    setIsSubmitting(true);
+    try {
+      await addDoc(collection(db, 'incomes'), {
+        userId,
+        description,
+        amount: parseFloat(amount),
+        category,
+        date,
+        createdAt: serverTimestamp()
+      });
+
+      setDescription('');
+      setAmount('');
+      setCategory('Salary');
+    } catch (error) {
+      handleFirestoreError(error, OperationType.WRITE, 'incomes');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-800 p-6 transition-colors duration-200">
+      <h2 className="text-lg font-semibold mb-4 flex items-center gap-2 text-gray-900 dark:text-gray-50">
+        <TrendingUp className="w-5 h-5 text-emerald-600 dark:text-emerald-500" />
+        Add Income
+      </h2>
+      <form onSubmit={handleSubmit} className="space-y-4 font-sans">
+        <div>
+          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Source / Description</label>
+          <input
+            type="text"
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            placeholder="e.g., Monthly Salary, Consulting fee"
+            className="w-full px-4 py-2 bg-white dark:bg-gray-950 border border-gray-200 dark:border-gray-700 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none transition-all text-gray-900 dark:text-gray-50 placeholder-gray-400 dark:placeholder-gray-500"
+            required
+          />
+        </div>
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Amount (₹)</label>
+            <input
+              type="number"
+              step="0.01"
+              min="0.01"
+              value={amount}
+              onChange={(e) => setAmount(e.target.value)}
+              placeholder="0.00"
+              className="w-full px-4 py-2 bg-white dark:bg-gray-950 border border-gray-200 dark:border-gray-700 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none transition-all text-gray-900 dark:text-gray-50 placeholder-gray-400 dark:placeholder-gray-500"
+              required
+            />
+          </div>
+          <DatePicker
+            label="Received Date"
+            value={date}
+            onChange={(val) => setDate(val)}
+            className="w-full"
+          />
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Category</label>
+          <select
+            value={category}
+            onChange={(e) => setCategory(e.target.value)}
+            className="w-full px-4 py-2 bg-white dark:bg-gray-950 border border-gray-200 dark:border-gray-700 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none transition-all text-gray-900 dark:text-gray-50 font-medium md:text-sm"
+          >
+            {Object.keys(INCOME_CATEGORY_COLORS).map((cat) => (
+              <option key={cat} value={cat}>{cat}</option>
+            ))}
+          </select>
+        </div>
+        <button
+          type="submit"
+          disabled={isSubmitting}
+          className="w-full py-2.5 px-4 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-medium transition-colors flex items-center justify-center gap-2 disabled:opacity-70 shadow-lg shadow-emerald-200 dark:shadow-none"
+        >
+          {isSubmitting ? (
+            <><Loader2 className="w-4 h-4 animate-spin" /> Adding Income...</>
+          ) : (
+            <><Plus className="w-4 h-4" /> Add Income Entry</>
+          )}
+        </button>
+      </form>
+    </div>
+  );
+}
+
+function IncomeList({ incomes }: { incomes: Income[] }) {
+  const [showFilters, setShowFilters] = useState(false);
+  const [categoryFilter, setCategoryFilter] = useState('All');
+  const [startDate, setStartDate] = useState('');
+  const [endDate, setEndDate] = useState('');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [incomeToDelete, setIncomeToDelete] = useState<string | null>(null);
+
+  const confirmDelete = async () => {
+    if (!incomeToDelete) return;
+    try {
+      await deleteDoc(doc(db, 'incomes', incomeToDelete));
+    } catch (error) {
+      handleFirestoreError(error, OperationType.DELETE, `incomes/${incomeToDelete}`);
+    } finally {
+      setIncomeToDelete(null);
+    }
+  };
+
+  const clearFilters = () => {
+    setSearchQuery('');
+    setCategoryFilter('All');
+    setStartDate('');
+    setEndDate('');
+  };
+
+  const filteredIncomes = incomes.filter(income => {
+    if (searchQuery) {
+      const q = searchQuery.toLowerCase();
+      if (!income.description.toLowerCase().includes(q) && !income.category.toLowerCase().includes(q)) {
+        return false;
+      }
+    }
+    if (categoryFilter !== 'All' && income.category !== categoryFilter) return false;
+    if (startDate && income.date < startDate) return false;
+    if (endDate && income.date > endDate) return false;
+    return true;
+  });
+
+  return (
+    <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-800 p-6 transition-colors duration-200">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-4">
+        <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-50 whitespace-nowrap">Income Entries</h2>
+        <div className="flex items-center gap-2 w-full sm:w-auto">
+          <div className="relative flex-1 sm:w-48">
+            <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+              <Search className="h-4 w-4 text-gray-400" />
+            </div>
+            <input
+              type="text"
+              placeholder="Search income..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full pl-9 pr-3 py-1.5 text-sm bg-gray-50 dark:bg-gray-950 border border-gray-200 dark:border-gray-700 rounded-lg focus:ring-1 focus:ring-blue-500 outline-none text-gray-900 dark:text-gray-50 transition-colors"
+            />
+          </div>
+          <button
+            onClick={() => setShowFilters(!showFilters)}
+            className="p-1.5 sm:p-2 text-gray-500 hover:text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 rounded-lg transition-colors flex items-center gap-1 text-sm font-medium border border-transparent hover:border-emerald-100 dark:hover:border-emerald-800/50 flex-shrink-0"
+          >
+            <Filter className="w-4 h-4" />
+            <span className="hidden sm:inline">Filter</span>
+            {showFilters ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+          </button>
+        </div>
+      </div>
+
+      {showFilters && (
+        <div className="mb-6 p-4 bg-gray-50 dark:bg-gray-800/50 rounded-xl space-y-4 animate-in fade-in slide-in-from-top-2">
+          <div className="flex items-center justify-between">
+            <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300">Filter Options</h3>
+            <button onClick={clearFilters} className="text-xs text-gray-500 hover:text-gray-900 dark:hover:text-gray-100 flex items-center gap-1">
+              <X className="w-3 h-3" /> Clear All
+            </button>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Category</label>
+              <select
+                value={categoryFilter}
+                onChange={(e) => setCategoryFilter(e.target.value)}
+                className="w-full px-3 py-1.5 text-sm bg-white dark:bg-gray-950 border border-gray-200 dark:border-gray-700 rounded-lg focus:ring-1 focus:ring-blue-500 outline-none text-gray-900 dark:text-gray-50"
+              >
+                <option value="All">All Categories</option>
+                {Object.keys(INCOME_CATEGORY_COLORS).map(cat => (
+                  <option key={cat} value={cat}>{cat}</option>
+                ))}
+              </select>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">From</label>
+                <input
+                  type="date"
+                  value={startDate}
+                  onChange={(e) => setStartDate(e.target.value)}
+                  className="w-full px-3 py-1.5 text-sm bg-white dark:bg-gray-950 border border-gray-200 dark:border-gray-700 rounded-lg focus:ring-1 focus:ring-blue-500 outline-none text-gray-900 dark:text-gray-50"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">To</label>
+                <input
+                  type="date"
+                  value={endDate}
+                  onChange={(e) => setEndDate(e.target.value)}
+                  className="w-full px-3 py-1.5 text-sm bg-white dark:bg-gray-950 border border-gray-200 dark:border-gray-700 rounded-lg focus:ring-1 focus:ring-blue-500 outline-none text-gray-900 dark:text-gray-50"
+                />
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div className="max-h-96 overflow-y-auto space-y-2 pr-1">
+        {filteredIncomes.length === 0 ? (
+          <div className="text-center py-8 text-gray-500 dark:text-gray-400">
+            <DollarSign className="w-8 h-8 text-gray-300 dark:text-gray-700 mx-auto mb-2" />
+            <p className="text-sm">No incomes matched your filters.</p>
+          </div>
+        ) : (
+          filteredIncomes.map((income) => (
+            <div
+              key={income.id}
+              className="flex items-center justify-between p-3.5 bg-gray-50 dark:bg-gray-800/20 hover:bg-gray-100/50 dark:hover:bg-gray-800/40 rounded-xl transition-all border border-gray-100/50 dark:border-gray-800/50 group"
+            >
+              <div className="min-w-0 pr-3">
+                <p className="text-sm font-semibold text-gray-900 dark:text-gray-50 truncate">
+                  {income.description}
+                </p>
+                <div className="flex items-center gap-2 mt-1">
+                  <span
+                    className="inline-block w-2.5 h-2.5 rounded-full"
+                    style={{ backgroundColor: INCOME_CATEGORY_COLORS[income.category] || INCOME_CATEGORY_COLORS.Other }}
+                  />
+                  <span className="text-xs font-medium text-gray-500 dark:text-gray-400">
+                    {income.category}
+                  </span>
+                  <span className="text-xs text-gray-400 dark:text-gray-600">•</span>
+                  <span className="text-xs text-gray-400 dark:text-gray-500">
+                    {format(parse(income.date, 'yyyy-MM-dd', new Date()), 'MMM dd, yyyy')}
+                  </span>
+                </div>
+              </div>
+              <div className="flex items-center gap-3">
+                <span className="font-bold text-emerald-600 dark:text-emerald-400 whitespace-nowrap">
+                  +₹{income.amount.toFixed(2)}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setIncomeToDelete(income.id)}
+                  className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/20 rounded-lg hover:opacity-100 focus:opacity-100 transition-all opacity-100 lg:opacity-0 lg:group-hover:opacity-100"
+                  title="Delete income"
+                >
+                  <Trash2 className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+
+      {incomeToDelete && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-gray-900 rounded-2xl max-w-sm w-full p-6 shadow-xl border border-gray-100 dark:border-gray-800">
+            <h3 className="text-lg font-bold text-gray-900 dark:text-gray-50 mb-2">Delete Income?</h3>
+            <p className="text-gray-500 dark:text-gray-400 text-sm mb-6">
+              Are you sure you want to delete this income entry? This action cannot be undone.
+            </p>
+            <div className="flex gap-3 justify-end">
+              <button
+                type="button"
+                onClick={() => setIncomeToDelete(null)}
+                className="px-4 py-2 text-sm bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 rounded-xl font-semibold text-gray-700 dark:text-gray-200"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={confirmDelete}
+                className="px-4 py-2 text-sm bg-red-600 hover:bg-red-700 text-white rounded-xl font-semibold"
+              >
+                Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function CategoryRulesList({ categoryRules, userId }: { categoryRules: CategoryRule[], userId: string }) {
   const [showAddForm, setShowAddForm] = useState(false);
   const [keyword, setKeyword] = useState('');
@@ -1178,7 +1604,7 @@ function RecurringExpenseList({ recurringExpenses }: { recurringExpenses: Recurr
   );
 }
 
-function Dashboard({ expenses, recurringExpenses, isDarkMode, budgetGoals, userId, user }: { expenses: Expense[], recurringExpenses: RecurringExpense[], isDarkMode: boolean, budgetGoals: BudgetGoal[], userId: string, user: any }) {
+function Dashboard({ expenses, incomes = [], recurringExpenses, isDarkMode, budgetGoals, userId, user }: { expenses: Expense[], incomes: Income[], recurringExpenses: RecurringExpense[], isDarkMode: boolean, budgetGoals: BudgetGoal[], userId: string, user: any }) {
   const [selectedDashboardMonth, setSelectedDashboardMonth] = useState(format(new Date(), 'yyyy-MM'));
   const [compareRange, setCompareRange] = useState<number>(6);
   const [compareChartType, setCompareChartType] = useState<'total' | 'categories'>('total');
@@ -1192,9 +1618,15 @@ function Dashboard({ expenses, recurringExpenses, isDarkMode, budgetGoals, userI
   const currentMonthStr = format(new Date(), 'yyyy-MM');
   
   const totalSpent = expenses.reduce((sum, exp) => sum + exp.amount, 0);
-  
-  // Group by category for selected month
+  const totalIncomes = incomes.reduce((sum, inc) => sum + inc.amount, 0);
+  const netBalance = totalIncomes - totalSpent;
+
+  // Monthly stats
+  const monthIncomes = incomes.filter(inc => inc.date.startsWith(selectedDashboardMonth));
+  const totalMonthIncomes = monthIncomes.reduce((sum, inc) => sum + inc.amount, 0);
   const monthExpenses = expenses.filter(exp => exp.date.startsWith(selectedDashboardMonth));
+  const totalMonthSpent = monthExpenses.reduce((sum, exp) => sum + exp.amount, 0);
+  const monthNetBalance = totalMonthIncomes - totalMonthSpent;
   const monthCategoryData = monthExpenses.reduce((acc, exp) => {
     acc[exp.category] = (acc[exp.category] || 0) + exp.amount;
     return acc;
@@ -1208,7 +1640,6 @@ function Dashboard({ expenses, recurringExpenses, isDarkMode, budgetGoals, userI
   const [budgetToDelete, setBudgetToDelete] = useState<string | null>(null);
 
   const monthBudgets = budgetGoals.filter(b => b.month === selectedDashboardMonth);
-  const totalMonthSpent = monthExpenses.reduce((sum, exp) => sum + exp.amount, 0);
   const totalMonthBudgetLimit = monthBudgets.reduce((sum, b) => sum + b.amount, 0);
   const totalBudgetPercent = totalMonthBudgetLimit > 0 ? Math.min(100, (totalMonthSpent / totalMonthBudgetLimit) * 100) : 0;
 
@@ -1492,47 +1923,73 @@ function Dashboard({ expenses, recurringExpenses, isDarkMode, budgetGoals, userI
 
       {/* Stats Row */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        {/* Wallet Balance (All-Time) */}
         <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-800 p-6 transition-colors duration-200">
           <div className="flex items-center gap-3 mb-2 text-gray-500 dark:text-gray-400">
-            <DollarSign className="w-5 h-5 text-blue-600 dark:text-blue-500" />
-            <span className="font-medium text-sm">Total Spent</span>
+            <DollarSign className="w-5 h-5 text-emerald-600 dark:text-emerald-500" />
+            <span className="font-medium text-sm">Wallet Balance</span>
           </div>
-          <p className="text-3xl font-bold text-gray-900 dark:text-gray-50">₹{totalSpent.toFixed(2)}</p>
-          <p className="text-xs text-gray-500 mt-1">All time</p>
+          <p className={cn("text-3xl font-bold transition-all", netBalance >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-red-600 dark:text-red-400")}>
+            ₹{netBalance.toFixed(2)}
+          </p>
+          <div className="flex items-center gap-1 mt-1 text-xs">
+            <span className={cn("font-semibold", netBalance >= 0 ? "text-emerald-600 dark:text-emerald-500" : "text-red-600 dark:text-red-500")}>
+              {netBalance >= 0 ? "Surplus Position" : "Deficit Position"}
+            </span>
+            <span className="text-gray-400">• All-time</span>
+          </div>
         </div>
+
+        {/* Monthly Income */}
         <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-800 p-6 transition-colors duration-200">
           <div className="flex items-center gap-3 mb-2 text-gray-500 dark:text-gray-400">
-            <Activity className="w-5 h-5 text-green-600 dark:text-green-500" />
+            <TrendingUp className="w-5 h-5 text-emerald-500 dark:text-emerald-400" />
+            <span className="font-medium text-sm">Monthly Income</span>
+          </div>
+          <p className="text-3xl font-bold text-gray-900 dark:text-gray-50">₹{totalMonthIncomes.toFixed(2)}</p>
+          <p className="text-xs text-gray-500 mt-1">{format(parse(selectedDashboardMonth, 'yyyy-MM', new Date()), 'MMMM yyyy')}</p>
+        </div>
+
+        {/* Monthly Spent with Integrated Budget Progress */}
+        <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-800 p-6 transition-colors duration-200">
+          <div className="flex items-center gap-3 mb-2 text-gray-500 dark:text-gray-400">
+            <Activity className="w-5 h-5 text-red-500 dark:text-red-400" />
             <span className="font-medium text-sm">Monthly Spent</span>
           </div>
           <p className="text-3xl font-bold text-gray-900 dark:text-gray-50">₹{totalMonthSpent.toFixed(2)}</p>
-          <p className="text-xs text-gray-500 mt-1">{format(parse(selectedDashboardMonth, 'yyyy-MM', new Date()), 'MMMM yyyy')}</p>
+          
+          {totalMonthBudgetLimit > 0 ? (
+            <div className="mt-1">
+              <div className="flex items-center justify-between text-xs text-gray-500">
+                <span>Budget Limit: ₹{totalMonthBudgetLimit.toFixed(0)}</span>
+                <span className={cn("font-medium", totalBudgetPercent > 90 ? "text-red-500" : "text-indigo-500")}>
+                  {totalBudgetPercent.toFixed(0)}%
+                </span>
+              </div>
+              <div className="w-full bg-gray-100 dark:bg-gray-800 rounded-full h-1 mt-1 overflow-hidden">
+                <div 
+                  className={cn("h-full transition-all duration-1000", totalBudgetPercent > 90 ? "bg-red-500" : "bg-indigo-500")}
+                  style={{ width: `${totalBudgetPercent}%` }}
+                />
+              </div>
+            </div>
+          ) : (
+            <p className="text-xs text-gray-400 mt-1">No budget limit set</p>
+          )}
         </div>
+
+        {/* Net Cashflow (Surplus/Deficit for selected month) */}
         <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-800 p-6 transition-colors duration-200">
           <div className="flex items-center gap-3 mb-2 text-gray-500 dark:text-gray-400">
-            <Target className="w-5 h-5 text-indigo-600 dark:text-indigo-500" />
-            <span className="font-medium text-sm">Budget Progress</span>
+            <Target className="w-5 h-5 text-indigo-500 dark:text-indigo-400" />
+            <span className="font-medium text-sm">Monthly Net Trend</span>
           </div>
-          <div className="flex items-end gap-2">
-            <p className="text-3xl font-bold text-gray-900 dark:text-gray-50">{totalBudgetPercent.toFixed(0)}%</p>
-            <p className="text-xs text-gray-500 mb-1">of total budget</p>
-          </div>
-          <div className="w-full bg-gray-100 dark:bg-gray-800 rounded-full h-1.5 mt-3 overflow-hidden">
-            <div 
-              className={cn("h-full transition-all duration-1000", totalBudgetPercent > 90 ? "bg-red-500" : "bg-indigo-500")}
-              style={{ width: `${totalBudgetPercent}%` }}
-            />
-          </div>
-        </div>
-        <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-800 p-6 transition-colors duration-200">
-          <div className="flex items-center gap-3 mb-2 text-gray-500 dark:text-gray-400">
-            <PieChartIcon className="w-5 h-5 text-purple-600 dark:text-purple-500" />
-            <span className="font-medium text-sm">Top Category</span>
-          </div>
-          <p className="text-xl font-bold text-gray-900 dark:text-gray-50 truncate">
-            {pieData.length > 0 ? pieData[0].name : '-'}
+          <p className={cn("text-3xl font-bold", monthNetBalance >= 0 ? "text-emerald-600 dark:text-emerald-500" : "text-red-600 dark:text-red-500")}>
+            {monthNetBalance >= 0 ? '+' : ''}₹{monthNetBalance.toFixed(2)}
           </p>
-          <p className="text-xs text-gray-500 mt-1">Highest spending</p>
+          <p className="text-xs text-gray-500 mt-1">
+            {monthNetBalance >= 0 ? "Net saving surplus" : "Net spending deficit"}
+          </p>
         </div>
       </div>
 
@@ -2388,25 +2845,19 @@ function Dashboard({ expenses, recurringExpenses, isDarkMode, budgetGoals, userI
               {/* Overview boxes */}
               <div className="grid grid-cols-3 gap-4 mb-6 text-center sm:text-left">
                 <div className="p-4 border border-slate-300">
-                  <p className="text-[10px] uppercase tracking-wider font-bold text-slate-500">Total Monthly Spend</p>
+                  <p className="text-[10px] uppercase tracking-wider font-bold text-slate-500">Total Monthly Income</p>
+                  <p className="text-lg font-bold text-emerald-700 mt-1">₹{totalMonthIncomes.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</p>
+                </div>
+                <div className="p-4 border border-slate-300">
+                  <p className="text-[10px] uppercase tracking-wider font-bold text-slate-500">Total Monthly Spent</p>
                   <p className="text-lg font-bold text-slate-950 mt-1">₹{totalMonthSpent.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</p>
                 </div>
                 <div className="p-4 border border-slate-300">
-                  <p className="text-[10px] uppercase tracking-wider font-bold text-slate-500">Sovereign Budget Limit</p>
-                  <p className="text-lg font-bold text-slate-950 mt-1">
-                    {totalMonthBudgetLimit > 0 ? `₹${totalMonthBudgetLimit.toLocaleString('en-IN', { minimumFractionDigits: 2 })}` : "No Limit Set"}
+                  <p className="text-[10px] uppercase tracking-wider font-bold text-slate-500">Net Cashflow Trend</p>
+                  <p className={cn("text-lg font-bold mt-1", monthNetBalance >= 0 ? "text-emerald-700 font-bold" : "text-red-700 font-bold")}>
+                    {monthNetBalance >= 0 ? "+" : ""}
+                    ₹{monthNetBalance.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                   </p>
-                </div>
-                <div className="p-4 border border-slate-300">
-                  <p className="text-[10px] uppercase tracking-wider font-bold text-slate-500">Net Surplus Position</p>
-                  {totalMonthBudgetLimit > 0 ? (
-                    <p className={cn("text-lg font-bold mt-1", totalMonthBudgetLimit - totalMonthSpent >= 0 ? "text-slate-900 font-bold" : "text-red-700 font-bold")}>
-                      {totalMonthBudgetLimit - totalMonthSpent >= 0 ? "+" : ""}
-                      ₹{(totalMonthBudgetLimit - totalMonthSpent).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                    </p>
-                  ) : (
-                    <p className="text-lg font-bold text-slate-500 mt-1">No limit</p>
-                  )}
                 </div>
               </div>
 

@@ -112,6 +112,38 @@
         }
       },
       "required": ["userId", "category", "amount", "month", "createdAt"]
+    },
+    "Income": {
+      "title": "Income",
+      "description": "A financial income record",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "description": "The ID of the user who received the income"
+        },
+        "description": {
+          "type": "string",
+          "description": "Description of the income source"
+        },
+        "amount": {
+          "type": "number",
+          "description": "The amount of the income"
+        },
+        "category": {
+          "type": "string",
+          "description": "The category of the income (e.g. Salary, Freelance, Investments, Other)"
+        },
+        "date": {
+          "type": "string",
+          "description": "The date of the income in ISO format"
+        },
+        "createdAt": {
+          "type": "timestamp",
+          "description": "When the income record was created"
+        }
+      },
+      "required": ["userId", "description", "amount", "category", "date", "createdAt"]
     }
   },
   "firestore": {
@@ -138,6 +170,12 @@
         "$ref": "#/entities/BudgetGoal"
       },
       "description": "Monthly category budget goals"
+    },
+    "/incomes/{incomeId}": {
+      "schema": {
+        "$ref": "#/entities/Income"
+      },
+      "description": "Incomes earned by users"
     }
   }
 }

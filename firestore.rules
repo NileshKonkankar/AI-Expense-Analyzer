@@ -72,6 +72,16 @@ service cloud.firestore {
              data.month is string && data.month.matches("^\\d{4}-\\d{2}$") &&
              data.createdAt is timestamp;
     }
+
+    function isValidIncome(data) {
+      return hasOnlyAllowedFields(['userId', 'description', 'amount', 'category', 'date', 'createdAt']) &&
+             data.userId is string && data.userId == request.auth.uid &&
+             data.description is string && data.description.size() > 0 && data.description.size() <= 200 &&
+             data.amount is number && data.amount > 0 &&
+             data.category is string && data.category.size() > 0 && data.category.size() <= 50 &&
+             data.date is string && data.date.matches("^\\d{4}-\\d{2}-\\d{2}.*$") &&
+             data.createdAt is timestamp;
+    }
     
     function areImmutableFieldsUnchanged(fields) {
       return !request.resource.data.diff(resource.data).affectedKeys().hasAny(fields);
@@ -122,6 +132,16 @@ service cloud.firestore {
       allow read: if isAuthenticated() && resource.data.userId == request.auth.uid;
       allow create: if isAuthenticated() && isValidBudgetGoal(request.resource.data);
       allow update: if isAuthenticated() && resource.data.userId == request.auth.uid && isValidBudgetGoal(request.resource.data) && areImmutableFieldsUnchanged(['userId', 'createdAt']);
+      allow delete: if isAuthenticated() && resource.data.userId == request.auth.uid;
+    }
+
+    match /incomes/{incomeId} {
+      allow read: if isAuthenticated() && resource.data.userId == request.auth.uid;
+      allow create: if isAuthenticated() && isValidIncome(request.resource.data);
+      allow update: if isAuthenticated() && 
+                    resource.data.userId == request.auth.uid && 
+                    isValidIncome(request.resource.data) &&
+                    areImmutableFieldsUnchanged(['userId', 'createdAt']);
       allow delete: if isAuthenticated() && resource.data.userId == request.auth.uid;
     }
   }
