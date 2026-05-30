@@ -5,7 +5,7 @@ import { db, auth, loginWithGoogle, logout } from './firebase';
 import { onAuthStateChanged } from 'firebase/auth';
 import { format, addMonths, subMonths, parse, startOfMonth, endOfMonth, eachDayOfInterval, startOfWeek, endOfWeek, isSameDay, isSameMonth, addYears, subYears } from 'date-fns';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RechartsTooltip, BarChart, Bar, XAxis, YAxis, CartesianGrid, AreaChart, Area, Legend } from 'recharts';
-import { Plus, Trash2, LogOut, Loader2, Sparkles, TrendingUp, DollarSign, PieChart as PieChartIcon, Activity, Sun, Moon, Repeat, Lightbulb, Target, Filter, ChevronDown, ChevronUp, X, Search, ChevronLeft, ChevronRight, Calendar, Bell, ChevronFirst, ChevronLast, Printer } from 'lucide-react';
+import { Plus, Trash2, LogOut, Loader2, Sparkles, TrendingUp, DollarSign, PieChart as PieChartIcon, Activity, Sun, Moon, Repeat, Lightbulb, Target, Filter, ChevronDown, ChevronUp, X, Search, ChevronLeft, ChevronRight, Calendar, Bell, ChevronFirst, ChevronLast, Printer, AlertTriangle } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from './lib/utils';
 
@@ -14,6 +14,15 @@ import { GoogleGenAI, Type } from "@google/genai";
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
 // --- Types ---
+interface BudgetExceededToast {
+  id: string;
+  category: string;
+  month: string;
+  limit: number;
+  newTotalSpent: number;
+  amountExceeded: number;
+}
+
 interface Expense {
   id: string;
   userId: string;
@@ -306,6 +315,21 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [isDarkMode, setIsDarkMode] = useState(false);
   const [activeLeftTab, setActiveLeftTab] = useState<'expenses' | 'incomes'>('expenses');
+  const [toasts, setToasts] = useState<BudgetExceededToast[]>([]);
+
+  const handleBudgetExceeded = (category: string, month: string, limit: number, newTotalSpent: number, amountExceeded: number) => {
+    const id = Math.random().toString(36).substring(2, 9);
+    setToasts(prev => {
+      // Avoid duplicate toasts for exact same limit breach if triggered simultaneously
+      if (prev.some(t => t.category === category && t.month === month && Math.abs(t.newTotalSpent - newTotalSpent) < 0.01)) {
+        return prev;
+      }
+      return [...prev, { id, category, month, limit, newTotalSpent, amountExceeded }];
+    });
+    setTimeout(() => {
+      setToasts(prev => prev.filter(t => t.id !== id));
+    }, 8000);
+  };
 
   useEffect(() => {
     if (localStorage.theme === 'dark' || (!('theme' in localStorage) && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
@@ -489,10 +513,25 @@ export default function App() {
           <div className="flex items-center gap-4">
             <button
               onClick={toggleTheme}
-              className="p-2 text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-full transition-colors"
+              className="p-2 text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-full transition-colors flex items-center justify-center w-9 h-9 overflow-hidden relative"
               title="Toggle theme"
             >
-              {isDarkMode ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
+              <AnimatePresence mode="wait" initial={false}>
+                <motion.div
+                  key={isDarkMode ? 'sun' : 'moon'}
+                  initial={{ rotate: -90, scale: 0.6, opacity: 0 }}
+                  animate={{ rotate: 0, scale: 1, opacity: 1 }}
+                  exit={{ rotate: 90, scale: 0.6, opacity: 0 }}
+                  transition={{ duration: 0.2, ease: 'easeInOut' }}
+                  className="flex items-center justify-center"
+                >
+                  {isDarkMode ? (
+                    <Sun className="w-5 h-5 text-amber-500" />
+                  ) : (
+                    <Moon className="w-5 h-5 text-blue-500" />
+                  )}
+                </motion.div>
+              </AnimatePresence>
             </button>
             <div className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-300 hidden sm:flex">
               <img src={user.photoURL} alt={user.displayName} className="w-8 h-8 rounded-full" />
@@ -542,7 +581,13 @@ export default function App() {
 
             {activeLeftTab === 'expenses' ? (
               <div className="space-y-8 animate-in fade-in slide-in-from-bottom-2 duration-200">
-                <ExpenseForm userId={user.uid} expenses={expenses} categoryRules={categoryRules} />
+                <ExpenseForm
+                  userId={user.uid}
+                  expenses={expenses}
+                  categoryRules={categoryRules}
+                  budgetGoals={budgetGoals}
+                  onBudgetExceeded={handleBudgetExceeded}
+                />
                 <ExpenseList expenses={expenses} />
                 <CategoryRulesList categoryRules={categoryRules} userId={user.uid} />
                 <RecurringExpenseList recurringExpenses={recurringExpenses} />
@@ -570,11 +615,61 @@ export default function App() {
           </div>
         </div>
       </main>
+
+      {/* Global Toast Notifications */}
+      <div className="fixed bottom-5 right-5 z-50 flex flex-col gap-3 max-w-sm w-full pointer-events-none">
+        <AnimatePresence>
+          {toasts.map((toast) => (
+            <motion.div
+              key={toast.id}
+              initial={{ opacity: 0, y: 50, scale: 0.9 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.85, transition: { duration: 0.15 } }}
+              layout
+              className="pointer-events-auto bg-white dark:bg-slate-900 border-l-4 border-amber-500 shadow-2xl rounded-2xl p-4 flex items-start gap-3 w-full border border-gray-100 dark:border-slate-800"
+            >
+              <div className="p-1.5 bg-amber-50 dark:bg-amber-950/40 rounded-lg text-amber-500 flex-shrink-0 mt-0.5 animate-pulse">
+                <AlertTriangle className="w-5 h-5 text-amber-500 dark:text-amber-400" />
+              </div>
+              
+              <div className="flex-1 min-w-0">
+                <h4 className="text-sm font-bold text-gray-950 dark:text-gray-50 flex items-center gap-1.5">
+                  Budget Limit Crossed!
+                </h4>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1 leading-relaxed">
+                  The expense has pushed your <span className="font-semibold text-gray-950 dark:text-gray-200">{toast.category}</span> spending for <span className="font-medium text-gray-950 dark:text-gray-200">{format(parse(toast.month, 'yyyy-MM', new Date()), 'MMMM yyyy')}</span> past its limit.
+                </p>
+                <div className="mt-2.5 bg-amber-50/50 dark:bg-amber-950/10 p-2 rounded-xl border border-amber-100/50 dark:border-amber-950/20 grid grid-cols-2 gap-2 text-[10px] font-mono">
+                  <div>
+                    <span className="text-gray-400 dark:text-gray-500 uppercase tracking-wider block">Budget Limit</span>
+                    <span className="font-bold text-gray-750 dark:text-gray-300">₹{toast.limit.toFixed(2)}</span>
+                  </div>
+                  <div>
+                    <span className="text-red-450 dark:text-rose-400 uppercase tracking-wider block">New spending</span>
+                    <span className="font-bold text-red-600 dark:text-red-400">₹{toast.newTotalSpent.toFixed(2)}</span>
+                  </div>
+                  <div className="col-span-2 border-t border-amber-100/40 dark:border-amber-950/20 pt-1.5 flex justify-between items-center mt-1">
+                    <span className="text-gray-400 uppercase tracking-wider">Over Budget By</span>
+                    <span className="text-xs font-bold text-rose-600 dark:text-rose-400">₹{toast.amountExceeded.toFixed(2)}</span>
+                  </div>
+                </div>
+              </div>
+              
+              <button
+                onClick={() => setToasts(prev => prev.filter(t => t.id !== toast.id))}
+                className="p-1 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors flex-shrink-0"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </motion.div>
+          ))}
+        </AnimatePresence>
+      </div>
     </div>
   );
 }
 
-function ExpenseForm({ userId, expenses, categoryRules }: { userId: string, expenses: Expense[], categoryRules: CategoryRule[] }) {
+function ExpenseForm({ userId, expenses, categoryRules, budgetGoals, onBudgetExceeded }: { userId: string, expenses: Expense[], categoryRules: CategoryRule[], budgetGoals: BudgetGoal[], onBudgetExceeded: (category: string, month: string, limit: number, newTotalSpent: number, amountExceeded: number) => void }) {
   const [description, setDescription] = useState('');
   const [amount, setAmount] = useState('');
   const [date, setDate] = useState(format(new Date(), 'yyyy-MM-dd'));
@@ -664,6 +759,25 @@ function ExpenseForm({ userId, expenses, categoryRules }: { userId: string, expe
     setIsSubmitting(true);
     try {
       const category = suggestedCategory || 'Other';
+
+      // Check budget limit exceedance before clearing inputs
+      if (frequency === 'none') {
+        const expenseMonth = date.substring(0, 7);
+        const relativeGoal = budgetGoals.find(b => b.category === category && b.month === expenseMonth);
+        if (relativeGoal) {
+          const currentSpentInCatMonth = expenses
+            .filter(e => e.category === category && e.date.substring(0, 7) === expenseMonth)
+            .reduce((sum, e) => sum + e.amount, 0);
+          
+          const additionAmount = parseFloat(amount);
+          const newTotalSpentInCat = currentSpentInCatMonth + additionAmount;
+
+          if (newTotalSpentInCat > relativeGoal.amount) {
+            const amountExceeded = newTotalSpentInCat - relativeGoal.amount;
+            onBudgetExceeded(category, expenseMonth, relativeGoal.amount, newTotalSpentInCat, amountExceeded);
+          }
+        }
+      }
 
       if (frequency === 'none') {
         await addDoc(collection(db, 'expenses'), {
@@ -1919,6 +2033,89 @@ function Dashboard({ expenses, incomes = [], recurringExpenses, isDarkMode, budg
             <span>Print Report</span>
           </button>
         </div>
+      </div>
+
+      {/* Monthly Budget Progress Bar Component */}
+      <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-800 p-6 transition-colors duration-200">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-4">
+          <div>
+            <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-50 flex items-center gap-2">
+              <Target className={cn("w-4 h-4", totalBudgetPercent > 90 ? "text-red-500 animate-pulse" : "text-indigo-500")} />
+              Total Budget Utilization
+            </h3>
+            <p className="text-xs text-gray-500 mt-0.5">
+              Overall monthly limit across all budgeted categories for {format(parse(selectedDashboardMonth, 'yyyy-MM', new Date()), 'MMMM yyyy')}
+            </p>
+          </div>
+          <div className="flex items-baseline gap-1 self-start sm:self-auto">
+            <span className="text-2xl font-bold text-gray-900 dark:text-gray-50">₹{totalMonthSpent.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+            <span className="text-xs text-gray-400">
+              {totalMonthBudgetLimit > 0 ? `of ₹${totalMonthBudgetLimit.toLocaleString('en-IN', { minimumFractionDigits: 2 })}` : '(No overall budget set for this month)'}
+            </span>
+          </div>
+        </div>
+
+        {totalMonthBudgetLimit > 0 ? (
+          <div className="space-y-3">
+            <div className="relative">
+              {/* Progress Track */}
+              <div className="w-full bg-gray-100 dark:bg-gray-800/80 rounded-full h-4 overflow-hidden shadow-inner border border-gray-200/20 dark:border-gray-800/20">
+                <motion.div
+                  className={cn(
+                    "h-full rounded-full transition-all duration-1000",
+                    totalBudgetPercent >= 100 
+                      ? "bg-gradient-to-r from-red-500 to-rose-600 shadow-md shadow-red-200 dark:shadow-none"
+                      : totalBudgetPercent > 80 
+                        ? "bg-gradient-to-r from-amber-500 to-orange-500"
+                        : "bg-gradient-to-r from-indigo-500 to-blue-600 shadow-md shadow-indigo-200 dark:shadow-none"
+                  )}
+                  initial={{ width: 0 }}
+                  animate={{ width: `${totalBudgetPercent}%` }}
+                  transition={{ ease: "easeInOut", duration: 0.8 }}
+                />
+              </div>
+
+              {/* Overbudget warning badge if spent > limit */}
+              {totalMonthSpent > totalMonthBudgetLimit && (
+                <div className="absolute right-2 -top-1.5 bg-rose-500 text-[9px] text-white font-extrabold px-1.5 py-0.5 rounded-md uppercase tracking-wide shadow-sm animate-pulse">
+                  Limit Crossed
+                </div>
+              )}
+            </div>
+
+            <div className="flex justify-between items-center text-xs">
+              <span className={cn(
+                "font-bold flex items-center gap-1",
+                totalBudgetPercent >= 100 
+                  ? "text-red-600 dark:text-red-500" 
+                  : totalBudgetPercent > 80 
+                    ? "text-amber-600 dark:text-amber-500" 
+                    : "text-indigo-600 dark:text-indigo-400"
+              )}>
+                {((totalMonthSpent / totalMonthBudgetLimit) * 100).toFixed(1)}% Used
+              </span>
+
+              {totalMonthSpent <= totalMonthBudgetLimit ? (
+                <span className="text-gray-550 dark:text-gray-400 font-medium">
+                  Remaining budget: <span className="font-bold text-emerald-600 dark:text-emerald-400">₹{(totalMonthBudgetLimit - totalMonthSpent).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                </span>
+              ) : (
+                <span className="text-red-600 dark:text-red-400 font-bold flex items-center gap-1 animate-pulse">
+                  <AlertTriangle className="w-3.5 h-3.5" /> Over budget by ₹{(totalMonthSpent - totalMonthBudgetLimit).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                </span>
+              )}
+            </div>
+          </div>
+        ) : (
+          <div className="p-4 bg-gray-50 dark:bg-gray-800/20 rounded-xl border border-dashed border-gray-200 dark:border-gray-800/80 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="text-xs text-gray-500 dark:text-gray-400">
+              Establish category budget targets for this month to activate the visual budget tracker card!
+            </div>
+            <div className="text-xs text-indigo-600 dark:text-indigo-405 font-bold uppercase tracking-wider">
+              No budgets declared
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Stats Row */}
