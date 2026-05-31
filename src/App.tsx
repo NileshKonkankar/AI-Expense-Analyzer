@@ -5,7 +5,7 @@ import { db, auth, loginWithGoogle, logout } from './firebase';
 import { onAuthStateChanged } from 'firebase/auth';
 import { format, addMonths, subMonths, parse, startOfMonth, endOfMonth, eachDayOfInterval, startOfWeek, endOfWeek, isSameDay, isSameMonth, addYears, subYears } from 'date-fns';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RechartsTooltip, BarChart, Bar, XAxis, YAxis, CartesianGrid, AreaChart, Area, Legend } from 'recharts';
-import { Plus, Trash2, LogOut, Loader2, Sparkles, TrendingUp, DollarSign, PieChart as PieChartIcon, Activity, Sun, Moon, Repeat, Lightbulb, Target, Filter, ChevronDown, ChevronUp, X, Search, ChevronLeft, ChevronRight, Calendar, Bell, ChevronFirst, ChevronLast, Printer, AlertTriangle } from 'lucide-react';
+import { Plus, Trash2, LogOut, Loader2, Sparkles, TrendingUp, DollarSign, PieChart as PieChartIcon, Activity, Sun, Moon, Repeat, Lightbulb, Target, Filter, ChevronDown, ChevronUp, X, Search, ChevronLeft, ChevronRight, Calendar, Bell, ChevronFirst, ChevronLast, Printer, AlertTriangle, Mail, Check } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from './lib/utils';
 
@@ -1730,6 +1730,28 @@ function Dashboard({ expenses, incomes = [], recurringExpenses, isDarkMode, budg
   const [customMemo, setCustomMemo] = useState('');
   const [statementTitle, setStatementTitle] = useState('Monthly Financial Statement');
   const currentMonthStr = format(new Date(), 'yyyy-MM');
+
+  // --- Daily Spend Digest States and Handlers ---
+  const [digestDeliveryStatus, setDigestDeliveryStatus] = useState<'idle' | 'sending' | 'sent'>('idle');
+  const [isDigestSubscribed, setIsDigestSubscribed] = useState(() => {
+    return localStorage.getItem('isDigestSubscribed') !== 'false';
+  });
+
+  const handleSendDigestSimulation = () => {
+    setDigestDeliveryStatus('sending');
+    setTimeout(() => {
+      setDigestDeliveryStatus('sent');
+      setTimeout(() => setDigestDeliveryStatus('idle'), 4000);
+    }, 1500);
+  };
+
+  const toggleDigestSubscription = () => {
+    setIsDigestSubscribed(prev => {
+      const next = !prev;
+      localStorage.setItem('isDigestSubscribed', String(next));
+      return next;
+    });
+  };
   
   const totalSpent = expenses.reduce((sum, exp) => sum + exp.amount, 0);
   const totalIncomes = incomes.reduce((sum, inc) => sum + inc.amount, 0);
@@ -1841,6 +1863,11 @@ function Dashboard({ expenses, incomes = [], recurringExpenses, isDarkMode, budg
     start: startOfMonth(selectedDate), 
     end: endOfMonth(selectedDate) 
   });
+
+  const isCurrentMonthSelected = selectedDashboardMonth === currentMonthStr;
+  const todayExpenses = expenses.filter(e => e.date === todayStr);
+  const todaySpent = todayExpenses.reduce((sum, e) => sum + e.amount, 0);
+  const recomDailyCeiling = totalMonthBudgetLimit > 0 ? (totalMonthBudgetLimit / daysInSelectedMonth.length) : 0;
 
   const monthDailyAggregated = monthExpenses.reduce((acc, exp) => {
     acc[exp.date] = (acc[exp.date] || 0) + exp.amount;
@@ -1980,6 +2007,272 @@ function Dashboard({ expenses, incomes = [], recurringExpenses, isDarkMode, budg
           )}
         </div>
       )}
+
+      {/* Daily Expenditures Brief / Digest Widget */}
+      <div className="bg-gradient-to-br from-indigo-50/50 to-white dark:from-slate-900/40 dark:to-slate-900 rounded-3xl p-5 border border-indigo-100/60 dark:border-slate-800 shadow-sm transition-all hover:shadow-md">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-4 border-b border-indigo-100/30 dark:border-slate-800/60">
+          <div className="flex items-center gap-2.5">
+            <div className="p-2 bg-indigo-600 rounded-xl text-white shadow-md shadow-indigo-100 dark:shadow-none">
+              <Mail className="w-4 h-4" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h3 className="text-sm font-bold text-gray-900 dark:text-gray-50 uppercase tracking-wide">
+                  Daily Spending Digest
+                </h3>
+                <span className="bg-indigo-100 dark:bg-indigo-950 text-indigo-750 dark:text-indigo-400 text-[9px] font-extrabold px-1.5 py-0.5 rounded-full uppercase">
+                  Daily Briefing
+                </span>
+              </div>
+              <p className="text-xs text-gray-500 mt-0.5 font-medium">
+                {isCurrentMonthSelected 
+                  ? `Today's financial velocity — ${format(new Date(), 'EEEE, MMMM dd, yyyy')}`
+                  : `Monthly average velocity for ${format(parse(selectedDashboardMonth, 'yyyy-MM', new Date()), 'MMMM yyyy')}`
+                }
+              </p>
+            </div>
+          </div>
+          
+          <div className="flex flex-wrap items-center gap-3">
+            {/* Simulation Send button */}
+            <button
+              onClick={handleSendDigestSimulation}
+              disabled={digestDeliveryStatus !== 'idle'}
+              className={cn(
+                "flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-xl transition-all shadow-sm border",
+                digestDeliveryStatus === 'idle'
+                  ? "bg-white dark:bg-slate-900 hover:bg-gray-50 text-gray-700 dark:text-gray-300 border-gray-200 dark:border-slate-700 hover:border-gray-300 cursor-pointer"
+                  : digestDeliveryStatus === 'sending'
+                    ? "bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 border-indigo-200 dark:border-indigo-900/50 cursor-not-allowed"
+                    : "bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 border-emerald-200 dark:border-emerald-900/50 cursor-not-allowed"
+              )}
+            >
+              {digestDeliveryStatus === 'idle' && (
+                <>
+                  <Mail className="w-3.5 h-3.5" />
+                  <span>Send Today's Digest</span>
+                </>
+              )}
+              {digestDeliveryStatus === 'sending' && (
+                <>
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  <span>Generating Brief...</span>
+                </>
+              )}
+              {digestDeliveryStatus === 'sent' && (
+                <>
+                  <Check className="w-3.5 h-3.5 text-emerald-600" />
+                  <span>Digest Dispatched!</span>
+                </>
+              )}
+            </button>
+
+            {/* Notification Subscription switch */}
+            <label className="flex items-center gap-2 text-xs font-semibold text-gray-600 dark:text-gray-400 cursor-pointer bg-white/40 dark:bg-slate-950/25 px-3 py-1.5 rounded-xl border border-gray-100 dark:border-slate-800/80">
+              <input
+                type="checkbox"
+                checked={isDigestSubscribed}
+                onChange={toggleDigestSubscription}
+                className="rounded text-indigo-600 focus:ring-indigo-500 border-gray-300 dark:border-slate-700 h-3.5 w-3.5"
+              />
+              <span>Subscribe (8 PM Daily)</span>
+            </label>
+          </div>
+        </div>
+
+        {/* Digest Body */}
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 mt-4">
+          {/* Main Figure */}
+          <div className="lg:col-span-4 bg-white dark:bg-slate-955 p-4 rounded-2xl border border-indigo-100/10 dark:border-slate-900/60 flex flex-col justify-between">
+            <div>
+              <span className="text-[10px] text-gray-400 dark:text-gray-500 uppercase tracking-widest font-extrabold block">
+                {isCurrentMonthSelected ? "TODAY'S OUTLAY" : "AVG DAILY OUTLAY"}
+              </span>
+              <div className="mt-1 flex items-baseline gap-1">
+                <span className="text-3xl font-black text-gray-955 dark:text-gray-50">
+                  ₹{isCurrentMonthSelected 
+                    ? todaySpent.toLocaleString('en-IN', { minimumFractionDigits: 2 })
+                    : (daysInSelectedMonth.length > 0 ? (totalMonthSpent / daysInSelectedMonth.length) : 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })
+                  }
+                </span>
+              </div>
+            </div>
+
+            <div className="mt-3 border-t border-gray-50 dark:border-slate-900/30 pt-3">
+              <span className="text-[10px] text-gray-400 dark:text-gray-500 uppercase tracking-widest font-extrabold block">
+                TARGET DAILY PACE
+              </span>
+              <div className="text-sm font-bold text-gray-700 dark:text-gray-300 mt-0.5">
+                {recomDailyCeiling > 0 
+                  ? `₹${recomDailyCeiling.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`
+                  : <span className="text-xs font-medium text-gray-400">No monthly budgets set</span>
+                }
+              </div>
+              <p className="text-[10px] text-gray-400 mt-0.5">
+                Calculated on overall budget limit divided by month's length.
+              </p>
+            </div>
+          </div>
+
+          {/* Progress / Velocity gauge card */}
+          <div className="lg:col-span-5 bg-white dark:bg-slate-955 p-4 rounded-2xl border border-indigo-100/10 dark:border-slate-900/60 flex flex-col justify-between">
+            <div>
+              <span className="text-[10px] text-gray-400 dark:text-gray-500 uppercase tracking-widest font-extrabold block">
+                VELOCITY PACING TARGET
+              </span>
+              
+              {recomDailyCeiling > 0 ? (
+                (() => {
+                  const currentOutlay = isCurrentMonthSelected 
+                    ? todaySpent 
+                    : (daysInSelectedMonth.length > 0 ? (totalMonthSpent / daysInSelectedMonth.length) : 0);
+                  const pacePercent = Math.min(200, (currentOutlay / recomDailyCeiling) * 100);
+                  const isOverPace = currentOutlay > recomDailyCeiling;
+                  
+                  return (
+                    <div className="mt-2 space-y-2">
+                      <div className="flex items-center justify-between font-mono text-xs">
+                        <span className={cn(
+                          "font-bold",
+                          isOverPace ? "text-red-500" : "text-emerald-500"
+                        )}>
+                          {pacePercent.toFixed(1)}% of allowance
+                        </span>
+                        <span className="text-gray-400 dark:text-gray-500">
+                          {isOverPace ? "Above ceiling pace" : "Under ceiling pace"}
+                        </span>
+                      </div>
+                      
+                      <div className="w-full bg-gray-100 dark:bg-gray-900 rounded-full h-3 overflow-hidden shadow-inner border border-gray-200/20 dark:border-gray-800/20">
+                        <motion.div
+                          className={cn(
+                            "h-full rounded-full transition-all duration-1000",
+                            isOverPace 
+                              ? "bg-gradient-to-r from-red-500 to-rose-600 shadow-md shadow-red-200 dark:shadow-none"
+                              : "bg-gradient-to-r from-emerald-400 to-teal-500 shadow-md shadow-emerald-200 dark:shadow-none"
+                          )}
+                          initial={{ width: 0 }}
+                          animate={{ width: `${Math.min(100, pacePercent)}%` }}
+                          transition={{ ease: "easeInOut", duration: 0.8 }}
+                        />
+                      </div>
+                    </div>
+                  );
+                })()
+              ) : (
+                <div className="mt-3 text-xs text-gray-400/90 leading-relaxed font-sans">
+                  Velocity tracking calculates your budget pacing against targets. Setup at least one category budget below to enable target comparisons.
+                </div>
+              )}
+            </div>
+
+            <div className="mt-4 pt-3 border-t border-gray-50 dark:border-slate-900/30 text-xs font-sans text-gray-500 dark:text-gray-400 leading-relaxed">
+              {recomDailyCeiling > 0 ? (
+                (() => {
+                  const currentOutlay = isCurrentMonthSelected 
+                    ? todaySpent 
+                    : (daysInSelectedMonth.length > 0 ? (totalMonthSpent / daysInSelectedMonth.length) : 0);
+                  const isOverPace = currentOutlay > recomDailyCeiling;
+                  const diff = Math.abs(currentOutlay - recomDailyCeiling);
+                  
+                  if (isCurrentMonthSelected) {
+                    if (todaySpent === 0) {
+                      return "Fantastic work! Zero expenditures logged so far today. You have your complete daily targets preserved.";
+                    }
+                    if (isOverPace) {
+                      return `You have outpaced your daily target by ₹${diff.toFixed(2)}. Aim to minimize non-essential purchases for the remainder of the week.`;
+                    }
+                    return `Splendid! You have saved ₹${diff.toFixed(2)} under your daily pace cap. Keep up this brilliant fiscal rhythm.`;
+                  } else {
+                    if (isOverPace) {
+                      return `Average expenditures in ${format(parse(selectedDashboardMonth, 'yyyy-MM', new Date()), 'MMMM')} outpaced the daily recommendation by ₹${diff.toFixed(2)}.`;
+                    }
+                    return `Average expenditure in ${format(parse(selectedDashboardMonth, 'yyyy-MM', new Date()), 'MMMM')} remained ₹${diff.toFixed(2)} within the target envelope.`;
+                  }
+                })()
+              ) : (
+                "To prevent excess spending, setting a budget gives you daily recommendations so you remain completely debt-free."
+              )}
+            </div>
+          </div>
+
+          {/* Today's logged items or summary of selected month */}
+          <div className="lg:col-span-3 bg-white dark:bg-slate-955 p-4 rounded-2xl border border-indigo-100/10 dark:border-slate-900/60 flex flex-col justify-between">
+            <div className="w-full">
+              <span className="text-[10px] text-gray-400 dark:text-gray-500 uppercase tracking-widest font-extrabold block">
+                {isCurrentMonthSelected ? "TODAY'S TRANSACTIONS" : "MONTH TRANS. COUNT"}
+              </span>
+              
+              {isCurrentMonthSelected ? (
+                todayExpenses.length > 0 ? (
+                  <div className="mt-2 text-xs space-y-1.5 max-h-[110px] overflow-y-auto pr-1">
+                    {todayExpenses.slice(0, 3).map(e => (
+                      <div key={e.id} className="flex justify-between items-center gap-2 border-b border-gray-50 dark:border-slate-900/30 pb-0.5">
+                        <span className="font-medium text-gray-700 dark:text-gray-300 truncate max-w-[100px]">{e.description}</span>
+                        <span className="font-bold text-gray-950 dark:text-gray-200 shrink-0">₹{e.amount.toFixed(0)}</span>
+                      </div>
+                    ))}
+                    {todayExpenses.length > 3 && (
+                      <div className="text-[10px] text-indigo-500 font-bold mt-1">
+                        + {todayExpenses.length - 3} more transaction(s)
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="mt-3 text-center py-2 bg-gray-50/50 dark:bg-gray-900/40 rounded-xl border border-dashed border-gray-200 dark:border-slate-800 text-[11px] text-gray-400 leading-normal">
+                    No transactions recorded today yet.
+                  </div>
+                )
+              ) : (
+                <div className="mt-2 space-y-3">
+                  <div className="flex justify-between font-mono text-xs text-gray-500">
+                    <span>Month Count:</span>
+                    <span className="font-bold text-gray-800 dark:text-gray-200">{monthExpenses.length} transactions</span>
+                  </div>
+                  <div className="flex justify-between font-mono text-xs text-gray-500 border-t border-gray-50 dark:border-slate-900/30 pt-1.5">
+                    <span>Month Total:</span>
+                    <span className="font-bold text-gray-800 dark:text-gray-200">₹{totalMonthSpent.toLocaleString('en-IN', { maximumFractionDigits: 0 })}</span>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Simulated success highlight */}
+            {isDigestSubscribed && (
+              <div className="mt-2.5 bg-emerald-50/40 dark:bg-emerald-950/20 p-2 rounded-xl border border-emerald-100/30 dark:border-emerald-900/30 flex items-center gap-1.5 text-[9px] text-emerald-700 dark:text-emerald-400 font-medium">
+                <Check className="w-3.5 h-3.5" />
+                <span>Subscribed to daily briefings</span>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Global Digest Simulated Success Banner inside the component */}
+        <AnimatePresence>
+          {digestDeliveryStatus === 'sent' && (
+            <motion.div
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: "auto", opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
+              className="mt-3 bg-emerald-50/80 dark:bg-emerald-950/20 text-emerald-800 dark:text-emerald-300 font-bold p-3 rounded-2xl text-xs flex items-center justify-between border border-emerald-100/50 dark:border-emerald-950/30"
+            >
+              <div className="flex items-center gap-2">
+                <span className="relative flex h-2 w-2">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                </span>
+                <span>A complete spending audit brief has been generated & forwarded to {user.email || 'your account'}.</span>
+              </div>
+              <button 
+                onClick={() => setDigestDeliveryStatus('idle')}
+                className="text-emerald-600 hover:text-emerald-800 text-xs uppercase tracking-wider font-extrabold hover:underline"
+              >
+                Dismiss
+              </button>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
 
       {/* Month Navigation */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white dark:bg-gray-900 p-4 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-800 transition-colors">
