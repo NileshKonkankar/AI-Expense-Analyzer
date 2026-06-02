@@ -4,7 +4,7 @@ import { collection, query, where, onSnapshot, addDoc, deleteDoc, updateDoc, doc
 import { db, auth, loginWithGoogle, logout } from './firebase';
 import { onAuthStateChanged } from 'firebase/auth';
 import { format, addMonths, subMonths, parse, startOfMonth, endOfMonth, eachDayOfInterval, startOfWeek, endOfWeek, isSameDay, isSameMonth, addYears, subYears } from 'date-fns';
-import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RechartsTooltip, BarChart, Bar, XAxis, YAxis, CartesianGrid, AreaChart, Area, Legend } from 'recharts';
+import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RechartsTooltip, BarChart, Bar, XAxis, YAxis, CartesianGrid, AreaChart, Area, Legend, LineChart, Line } from 'recharts';
 import { Plus, Trash2, LogOut, Loader2, Sparkles, TrendingUp, DollarSign, PieChart as PieChartIcon, Activity, Sun, Moon, Repeat, Lightbulb, Target, Filter, ChevronDown, ChevronUp, X, Search, ChevronLeft, ChevronRight, Calendar, Bell, ChevronFirst, ChevronLast, Printer, AlertTriangle, Mail, Check } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from './lib/utils';
@@ -1883,6 +1883,60 @@ function Dashboard({ expenses, incomes = [], recurringExpenses, isDarkMode, budg
     };
   });
 
+  // --- 6-Month Budget vs Spending Line Chart calculations ---
+  const last6MonthsList = React.useMemo(() => {
+    const list = [];
+    for (let i = 0; i < 6; i++) {
+      list.push(format(subMonths(new Date(), i), 'yyyy-MM'));
+    }
+    return list.reverse(); // chronological order
+  }, []);
+
+  const last6MonthsData = React.useMemo(() => {
+    return last6MonthsList.map(month => {
+      const monthExp = expenses.filter(e => e.date.startsWith(month));
+      const totalSpent = monthExp.reduce((sum, e) => sum + e.amount, 0);
+      const monthBudg = budgetGoals.filter(b => b.month === month);
+      const totalBudget = monthBudg.reduce((sum, b) => sum + b.amount, 0);
+
+      const parsedDate = parse(month, 'yyyy-MM', new Date());
+      const label = format(parsedDate, 'MMM yy');
+
+      return {
+        monthKey: month,
+        label,
+        spent: parseFloat(totalSpent.toFixed(2)),
+        budget: parseFloat(totalBudget.toFixed(2)),
+      };
+    });
+  }, [last6MonthsList, expenses, budgetGoals]);
+
+  const complianceStats = React.useMemo(() => {
+    let budgetMonthsCount = 0;
+    let compliantMonthsCount = 0;
+    let totalSaved = 0;
+
+    last6MonthsData.forEach(d => {
+      if (d.budget > 0) {
+        budgetMonthsCount++;
+        if (d.spent <= d.budget) {
+          compliantMonthsCount++;
+        }
+        totalSaved += (d.budget - d.spent);
+      }
+    });
+
+    const complianceRate = budgetMonthsCount > 0 ? (compliantMonthsCount / budgetMonthsCount) * 15.0 : null;
+    // Note: since they might not have continuous limits, let's calculate exact %
+    const exactComplianceRate = budgetMonthsCount > 0 ? (compliantMonthsCount / budgetMonthsCount) * 100 : null;
+
+    return {
+      complianceRate: exactComplianceRate,
+      totalSaved,
+      budgetMonthsCount
+    };
+  }, [last6MonthsData]);
+
   // --- Multi-month comparison calculations ---
   const comparisonMonths = React.useMemo(() => {
     const monthsList = [];
@@ -2604,6 +2658,106 @@ function Dashboard({ expenses, incomes = [], recurringExpenses, isDarkMode, budg
                 animationEasing="ease-out"
               />
             </AreaChart>
+          </ResponsiveContainer>
+        </div>
+      </div>
+
+      {/* 6-Month Budget vs Spending Line Chart Card */}
+      <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-800 p-6 transition-colors duration-200">
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 mb-6">
+          <div className="flex items-center gap-3">
+            <div className="p-2 bg-indigo-50 dark:bg-indigo-950/40 rounded-xl">
+              <Activity className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />
+            </div>
+            <div>
+              <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-50 uppercase tracking-wider text-[10px] text-indigo-600 dark:text-indigo-400">Long-Term Discipline Analyzer</h3>
+              <h2 className="text-base font-bold text-gray-900 dark:text-gray-50 leading-tight">6-Month Budget vs. Spending Trend</h2>
+              <p className="text-xs text-gray-400 mt-1">
+                Visualizing chronological overall monthly budget limits vs. actual expenditures to gauge fiscal resilience.
+              </p>
+            </div>
+          </div>
+
+          {/* discipline badges/stats */}
+          {complianceStats.budgetMonthsCount > 0 && (
+            <div className="flex flex-wrap gap-4 font-sans text-xs">
+              {complianceStats.complianceRate !== null && (
+                <div className="bg-gradient-to-br from-teal-50 to-emerald-50/50 dark:from-emerald-950/10 dark:to-transparent px-3 py-2 rounded-xl border border-teal-100 dark:border-emerald-900/30">
+                  <span className="text-[9px] text-emerald-650 dark:text-emerald-400 uppercase tracking-widest font-extrabold block">Budget Compliance</span>
+                  <span className="text-xs font-black text-emerald-700 dark:text-emerald-400">{complianceStats.complianceRate.toFixed(0)}%</span>
+                  <span className="text-[9px] text-gray-450 dark:text-gray-500 ml-1">of months within limits</span>
+                </div>
+              )}
+              <div className={cn(
+                "px-3 py-2 rounded-xl border",
+                complianceStats.totalSaved >= 0 
+                  ? "bg-gradient-to-br from-indigo-50 to-blue-50/50 dark:from-indigo-950/10 dark:to-transparent border-indigo-100 dark:border-indigo-900/30 text-indigo-700 dark:text-indigo-400"
+                  : "bg-gradient-to-br from-red-50 to-rose-50/50 dark:from-rose-950/10 dark:to-transparent border-red-100 dark:border-rose-900/30 text-red-700 dark:text-rose-450"
+              )}>
+                <span className="text-[9px] text-gray-450 dark:text-gray-500 uppercase tracking-widest font-extrabold block">Cumulative Budget Cushion</span>
+                <span className="text-xs font-black">
+                  {complianceStats.totalSaved >= 0 ? '+' : '-'}₹{Math.abs(complianceStats.totalSaved).toLocaleString('en-IN', { maximumFractionDigits: 0 })}
+                </span>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* The line chart */}
+        <div className="h-72 w-full mb-3">
+          <ResponsiveContainer width="100%" height="100%">
+            <LineChart data={last6MonthsData} margin={{ top: 10, right: 10, left: -15, bottom: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={isDarkMode ? '#374151' : '#E5E7EB'} />
+              <XAxis 
+                dataKey="label" 
+                axisLine={false} 
+                tickLine={false} 
+                tick={{ fontSize: 11, fill: isDarkMode ? '#9CA3AF' : '#6B7280' }} 
+              />
+              <YAxis 
+                axisLine={false} 
+                tickLine={false} 
+                tick={{ fontSize: 11, fill: isDarkMode ? '#9CA3AF' : '#6B7280' }} 
+                tickFormatter={(val) => `₹${val.toLocaleString()}`} 
+              />
+              <RechartsTooltip 
+                formatter={(value: number) => [`₹${value.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`, '']}
+                contentStyle={tooltipStyle}
+                itemStyle={{ color: isDarkMode ? '#F9FAFB' : '#111827' }}
+              />
+              <Legend 
+                verticalAlign="top" 
+                height={36} 
+                iconType="circle"
+                iconSize={8}
+                wrapperStyle={{ fontSize: 11, color: isDarkMode ? '#F9FAFB' : '#111827' }} 
+              />
+              <Line 
+                type="monotone" 
+                dataKey="spent" 
+                name="Total Spending" 
+                stroke="#6366f1" 
+                strokeWidth={3} 
+                dot={{ r: 4, strokeWidth: 1 }} 
+                activeDot={{ r: 7, strokeWidth: 0 }}
+                isAnimationActive={true}
+                animationDuration={800}
+                animationEasing="ease-out"
+              />
+              <Line 
+                type="monotone" 
+                dataKey="budget" 
+                name="Overall Budget Limit" 
+                stroke="#10b981" 
+                strokeWidth={3} 
+                strokeDasharray="5 5"
+                dot={{ r: 4, strokeWidth: 1 }} 
+                activeDot={{ r: 7, strokeWidth: 0 }}
+                isAnimationActive={true}
+                animationDuration={800}
+                animationEasing="ease-out"
+              />
+            </LineChart>
           </ResponsiveContainer>
         </div>
       </div>
