@@ -144,6 +144,30 @@
         }
       },
       "required": ["userId", "description", "amount", "category", "date", "createdAt"]
+    },
+    "SavingsGoal": {
+      "title": "Savings Goal",
+      "description": "A financial savings target",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "description": "The ID of the user who created the savings goal"
+        },
+        "title": {
+          "type": "string",
+          "description": "The name or title of the savings goal (e.g. Save for travel)"
+        },
+        "targetAmount": {
+          "type": "number",
+          "description": "The target to save"
+        },
+        "createdAt": {
+          "type": "timestamp",
+          "description": "When the savings goal was created"
+        }
+      },
+      "required": ["userId", "title", "targetAmount", "createdAt"]
     }
   },
   "firestore": {
@@ -176,6 +200,12 @@
         "$ref": "#/entities/Income"
       },
       "description": "Incomes earned by users"
+    },
+    "/savingsGoals/{goalId}": {
+      "schema": {
+        "$ref": "#/entities/SavingsGoal"
+      },
+      "description": "Savings goals set by users"
     }
   }
 }

@@ -5,7 +5,7 @@ import { db, auth, loginWithGoogle, logout } from './firebase';
 import { onAuthStateChanged } from 'firebase/auth';
 import { format, addMonths, subMonths, parse, startOfMonth, endOfMonth, eachDayOfInterval, startOfWeek, endOfWeek, isSameDay, isSameMonth, addYears, subYears } from 'date-fns';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RechartsTooltip, BarChart, Bar, XAxis, YAxis, CartesianGrid, AreaChart, Area, Legend, LineChart, Line } from 'recharts';
-import { Plus, Trash2, LogOut, Loader2, Sparkles, TrendingUp, DollarSign, PieChart as PieChartIcon, Activity, Sun, Moon, Repeat, Lightbulb, Target, Filter, ChevronDown, ChevronUp, X, Search, ChevronLeft, ChevronRight, Calendar, Bell, ChevronFirst, ChevronLast, Printer, AlertTriangle, Mail, Check } from 'lucide-react';
+import { Plus, Trash2, LogOut, Loader2, Sparkles, TrendingUp, DollarSign, PieChart as PieChartIcon, Activity, Sun, Moon, Repeat, Lightbulb, Target, Filter, ChevronDown, ChevronUp, X, Search, ChevronLeft, ChevronRight, Calendar, Bell, ChevronFirst, ChevronLast, Printer, AlertTriangle, Mail, Check, PiggyBank } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from './lib/utils';
 
@@ -68,6 +68,14 @@ interface BudgetGoal {
   category: string;
   amount: number;
   month: string;
+  createdAt: any;
+}
+
+interface SavingsGoal {
+  id: string;
+  userId: string;
+  title: string;
+  targetAmount: number;
   createdAt: any;
 }
 
@@ -312,6 +320,7 @@ export default function App() {
   const [recurringExpenses, setRecurringExpenses] = useState<RecurringExpense[]>([]);
   const [categoryRules, setCategoryRules] = useState<CategoryRule[]>([]);
   const [budgetGoals, setBudgetGoals] = useState<BudgetGoal[]>([]);
+  const [savingsGoals, setSavingsGoals] = useState<SavingsGoal[]>([]);
   const [loading, setLoading] = useState(true);
   const [isDarkMode, setIsDarkMode] = useState(false);
   const [activeLeftTab, setActiveLeftTab] = useState<'expenses' | 'incomes'>('expenses');
@@ -370,6 +379,7 @@ export default function App() {
       setRecurringExpenses([]);
       setCategoryRules([]);
       setBudgetGoals([]);
+      setSavingsGoals([]);
       setLoading(false);
       return;
     }
@@ -451,12 +461,27 @@ export default function App() {
       handleFirestoreError(error, OperationType.LIST, 'categoryBudgets');
     });
 
+    const qSavingsGoals = query(
+      collection(db, 'savingsGoals'),
+      where('userId', '==', user.uid)
+    );
+
+    const unsubscribeSavingsGoals = onSnapshot(qSavingsGoals, (snapshot) => {
+      setSavingsGoals(snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      })) as SavingsGoal[]);
+    }, (error) => {
+      handleFirestoreError(error, OperationType.LIST, 'savingsGoals');
+    });
+
     return () => {
       unsubscribe();
       unsubscribeIncomes();
       unsubscribeRecurring();
       unsubscribeRules();
       unsubscribeBudgets();
+      unsubscribeSavingsGoals();
     };
   }, [user, isAuthReady]);
 
@@ -608,6 +633,7 @@ export default function App() {
               recurringExpenses={recurringExpenses} 
               isDarkMode={isDarkMode} 
               budgetGoals={budgetGoals} 
+              savingsGoals={savingsGoals}
               userId={user.uid} 
               user={user} 
             />
@@ -1718,7 +1744,7 @@ function RecurringExpenseList({ recurringExpenses }: { recurringExpenses: Recurr
   );
 }
 
-function Dashboard({ expenses, incomes = [], recurringExpenses, isDarkMode, budgetGoals, userId, user }: { expenses: Expense[], incomes: Income[], recurringExpenses: RecurringExpense[], isDarkMode: boolean, budgetGoals: BudgetGoal[], userId: string, user: any }) {
+function Dashboard({ expenses, incomes = [], recurringExpenses, isDarkMode, budgetGoals, savingsGoals = [], userId, user }: { expenses: Expense[], incomes: Income[], recurringExpenses: RecurringExpense[], isDarkMode: boolean, budgetGoals: BudgetGoal[], savingsGoals?: SavingsGoal[], userId: string, user: any }) {
   const [selectedDashboardMonth, setSelectedDashboardMonth] = useState(format(new Date(), 'yyyy-MM'));
   const [compareRange, setCompareRange] = useState<number>(6);
   const [compareChartType, setCompareChartType] = useState<'total' | 'categories'>('total');
@@ -1774,6 +1800,13 @@ function Dashboard({ expenses, incomes = [], recurringExpenses, isDarkMode, budg
   const [budgetAmount, setBudgetAmount] = useState('');
   const [isSubmittingBudget, setIsSubmittingBudget] = useState(false);
   const [budgetToDelete, setBudgetToDelete] = useState<string | null>(null);
+
+  // State for setting savings goals
+  const [showSavingsModal, setShowSavingsModal] = useState(false);
+  const [savingsTitle, setSavingsTitle] = useState('');
+  const [savingsTarget, setSavingsTarget] = useState('');
+  const [isSubmittingSavings, setIsSubmittingSavings] = useState(false);
+  const [savingsToDelete, setSavingsToDelete] = useState<string | null>(null);
 
   const monthBudgets = budgetGoals.filter(b => b.month === selectedDashboardMonth);
   const totalMonthBudgetLimit = monthBudgets.reduce((sum, b) => sum + b.amount, 0);
@@ -1832,6 +1865,39 @@ function Dashboard({ expenses, incomes = [], recurringExpenses, isDarkMode, budg
       console.error("Error deleting budget:", error);
     } finally {
       setBudgetToDelete(null);
+    }
+  };
+
+  const handleAddSavingsGoal = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!savingsTitle || !savingsTarget) return;
+    setIsSubmittingSavings(true);
+
+    try {
+      await addDoc(collection(db, 'savingsGoals'), {
+        userId,
+        title: savingsTitle,
+        targetAmount: parseFloat(savingsTarget),
+        createdAt: serverTimestamp()
+      });
+      setSavingsTitle('');
+      setSavingsTarget('');
+      setShowSavingsModal(false);
+    } catch (error) {
+      console.error("Error setting savings goal:", error);
+    } finally {
+      setIsSubmittingSavings(false);
+    }
+  };
+
+  const confirmDeleteSavingsGoal = async () => {
+    if (!savingsToDelete) return;
+    try {
+      await deleteDoc(doc(db, 'savingsGoals', savingsToDelete));
+    } catch (error) {
+      console.error("Error deleting savings goal:", error);
+    } finally {
+      setSavingsToDelete(null);
     }
   };
 
@@ -3123,6 +3189,171 @@ function Dashboard({ expenses, incomes = [], recurringExpenses, isDarkMode, budg
                   className="w-full py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium transition-colors"
                 >
                   {isSubmittingBudget ? 'Saving...' : 'Save Budget'}
+                </button>
+              </form>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Savings Goals Row */}
+      <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-800 p-6 transition-colors duration-200 relative">
+        <div className="flex items-center justify-between mb-6">
+          <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-50 flex items-center gap-2">
+            <PiggyBank className="w-5 h-5 text-emerald-600 dark:text-emerald-500" />
+            Savings Goals (All-Time Goals)
+          </h3>
+          <button
+            onClick={() => setShowSavingsModal(true)}
+            className="text-xs font-semibold text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 flex items-center gap-1.5"
+          >
+            <Plus className="w-3.5 h-3.5" />
+            Add Goal
+          </button>
+        </div>
+
+        {savingsGoals.length === 0 ? (
+          <div className="text-center py-8 bg-gray-50/50 dark:bg-gray-800/20 rounded-xl border border-dashed border-gray-200 dark:border-gray-800/80">
+            <p className="text-gray-500 dark:text-gray-400 text-sm mb-3">No savings goals declared yet. Track your milestones in real-time!</p>
+            <button
+              onClick={() => setShowSavingsModal(true)}
+              className="text-xs font-semibold py-1.5 px-3 bg-white dark:bg-gray-950 text-blue-600 dark:text-blue-400 border border-blue-200 dark:border-blue-900/50 rounded-lg hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors shadow-sm"
+            >
+              Set Savings Goal
+            </button>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-6">
+            {savingsGoals
+              .map(goal => {
+                const isAchieved = netBalance >= goal.targetAmount;
+                const progressPercent = goal.targetAmount > 0 
+                  ? Math.max(0, Math.min(100, (netBalance / goal.targetAmount) * 100)) 
+                  : 0;
+                return { ...goal, isAchieved, progressPercent };
+              })
+              .map(goal => (
+                <div key={goal.id} className="space-y-2 group relative">
+                  <div className="flex justify-between items-center text-sm">
+                    <span className="font-semibold text-gray-950 dark:text-gray-50 flex items-center gap-2">
+                      <div className={`w-2.5 h-2.5 rounded-full ${goal.isAchieved ? 'bg-emerald-500 shadow-[0_0_8px_#10b981]' : 'bg-blue-500 shadow-[0_0_8px_#3b82f6]'}`} />
+                      {goal.title}
+                      {goal.isAchieved && (
+                        <span className="flex h-2 w-2 relative">
+                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                          <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                        </span>
+                      )}
+                    </span>
+                    <div className="flex items-center gap-3">
+                      <span className="text-gray-500 dark:text-gray-400 text-xs font-medium">
+                        <span className={goal.isAchieved ? "text-emerald-600 dark:text-emerald-400 font-bold" : "text-gray-950 dark:text-gray-100 font-semibold"}>
+                          ₹{(netBalance > 0 ? netBalance : 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })}
+                        </span>
+                        {" / "}
+                        ₹{goal.targetAmount.toLocaleString('en-IN', { maximumFractionDigits: 0 })}
+                      </span>
+                      <button 
+                        onClick={() => setSavingsToDelete(goal.id)}
+                        className="text-gray-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all p-1"
+                        title="Delete savings goal"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                  
+                  <div className="w-full bg-gray-100 dark:bg-gray-800 rounded-full h-2.5 overflow-hidden shadow-inner relative">
+                    <div 
+                      className={`h-2.5 rounded-full transition-all duration-1000 ease-out ${goal.isAchieved ? 'bg-emerald-500 shadow-[0_0_8px_#10b981]' : 'bg-blue-500 shadow-[0_0_8px_#3b82f6]'}`}
+                      style={{ 
+                        width: `${goal.progressPercent}%`
+                      }}
+                    />
+                  </div>
+                  
+                  <div className="flex justify-between items-center text-[10px] uppercase font-bold tracking-wider">
+                    <span className={goal.isAchieved ? "text-emerald-600 dark:text-emerald-400 flex items-center gap-1" : "text-blue-600 dark:text-blue-400"}>
+                      {goal.isAchieved ? "Goal Achieved! 🎉" : `${goal.progressPercent.toFixed(1)}% Completed`}
+                    </span>
+                    {goal.targetAmount > netBalance && (
+                      <span className="text-gray-450 dark:text-gray-500 font-normal normal-case">
+                        ₹{(goal.targetAmount - (netBalance > 0 ? netBalance : 0)).toLocaleString('en-IN', { maximumFractionDigits: 0 })} remaining
+                      </span>
+                    )}
+                  </div>
+                </div>
+              ))}
+          </div>
+        )}
+
+        {savingsToDelete && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/55 backdrop-blur-sm animate-in fade-in duration-200">
+            <div className="bg-white dark:bg-gray-805 rounded-2xl shadow-xl w-full max-w-sm overflow-hidden animate-in zoom-in-95 duration-205 border border-gray-100 dark:border-gray-850">
+              <div className="p-6">
+                <h3 className="text-lg font-bold text-gray-900 dark:text-gray-50 mb-2">Delete Savings Goal</h3>
+                <p className="text-sm text-gray-500 dark:text-gray-450 leading-relaxed">
+                  Are you sure you want to delete this savings goal? This action cannot be revoked.
+                </p>
+              </div>
+              <div className="px-6 py-4 bg-gray-50 dark:bg-gray-900/50 flex justify-end gap-3 rounded-b-2xl border-t border-gray-100 dark:border-gray-800/60">
+                <button
+                  onClick={() => setSavingsToDelete(null)}
+                  className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-800 rounded-xl transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={confirmDeleteSavingsGoal}
+                  className="px-4 py-2 text-sm font-medium text-white bg-red-650 hover:bg-red-700 rounded-xl transition-colors shadow-sm"
+                >
+                  Delete Goal
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {showSavingsModal && (
+          <div className="absolute top-0 left-0 w-full h-full bg-white/95 dark:bg-gray-900/95 backdrop-blur-sm rounded-2xl flex items-center justify-center p-6 z-10 animate-in fade-in duration-200">
+            <div className="bg-white dark:bg-gray-800 rounded-xl shadow-lg border border-gray-200 dark:border-gray-700/60 p-6 w-full max-w-sm animate-in fade-in zoom-in-95">
+              <div className="flex justify-between items-center mb-4">
+                <h4 className="font-bold text-gray-900 dark:text-gray-50">Create Savings Goal</h4>
+                <button onClick={() => setShowSavingsModal(false)} className="text-gray-500 hover:text-gray-900 dark:hover:text-gray-100 p-1 rounded-lg">
+                  <X className="w-5 h-5"/>
+                </button>
+              </div>
+              <form onSubmit={handleAddSavingsGoal} className="space-y-4">
+                <div>
+                  <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1.5 uppercase tracking-wider">Goal Name</label>
+                  <input
+                    type="text"
+                    value={savingsTitle}
+                    onChange={(e) => setSavingsTitle(e.target.value)}
+                    placeholder="e.g., Save 50,000 for travel"
+                    required
+                    maxLength={100}
+                    className="w-full px-3 py-2 text-sm bg-gray-50 dark:bg-gray-900/80 border border-gray-200 dark:border-gray-700 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-gray-900 dark:text-gray-50 font-medium"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1.5 uppercase tracking-wider">Target Amount (₹)</label>
+                  <input
+                    type="number"
+                    value={savingsTarget}
+                    onChange={(e) => setSavingsTarget(e.target.value)}
+                    placeholder="50000"
+                    required
+                    min="1"
+                    className="w-full px-3 py-2 text-sm bg-gray-50 dark:bg-gray-900/80 border border-gray-200 dark:border-gray-700 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-gray-900 dark:text-gray-50 font-medium font-mono"
+                  />
+                </div>
+                <button
+                  type="submit"
+                  disabled={isSubmittingSavings}
+                  className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-sm font-bold transition-colors shadow-md shadow-emerald-100/50 dark:shadow-none"
+                >
+                  {isSubmittingSavings ? 'Creating Goal...' : 'Set Savings Goal'}
                 </button>
               </form>
             </div>
