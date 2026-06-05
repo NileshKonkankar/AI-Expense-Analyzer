@@ -8,6 +8,7 @@ import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RechartsTooltip, B
 import { Plus, Trash2, LogOut, Loader2, Sparkles, TrendingUp, DollarSign, PieChart as PieChartIcon, Activity, Sun, Moon, Repeat, Lightbulb, Target, Filter, ChevronDown, ChevronUp, X, Search, ChevronLeft, ChevronRight, Calendar, Bell, ChevronFirst, ChevronLast, Printer, AlertTriangle, Mail, Check, PiggyBank } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from './lib/utils';
+import * as d3 from 'd3';
 
 import { GoogleGenAI, Type } from "@google/genai";
 
@@ -1808,6 +1809,9 @@ function Dashboard({ expenses, incomes = [], recurringExpenses, isDarkMode, budg
   const [isSubmittingSavings, setIsSubmittingSavings] = useState(false);
   const [savingsToDelete, setSavingsToDelete] = useState<string | null>(null);
 
+  // Calendar Heatmap State
+  const [selectedHeatmapDay, setSelectedHeatmapDay] = useState<string | null>(null);
+
   const monthBudgets = budgetGoals.filter(b => b.month === selectedDashboardMonth);
   const totalMonthBudgetLimit = monthBudgets.reduce((sum, b) => sum + b.amount, 0);
   const totalBudgetPercent = totalMonthBudgetLimit > 0 ? Math.min(100, (totalMonthSpent / totalMonthBudgetLimit) * 100) : 0;
@@ -1948,6 +1952,51 @@ function Dashboard({ expenses, incomes = [], recurringExpenses, isDarkMode, budg
       amount: monthDailyAggregated[dateStr] || 0
     };
   });
+
+  // --- Calendar Heatmap Calculations (using d3) ---
+  const heatmapDays = React.useMemo(() => {
+    const startOfCal = startOfWeek(startOfMonth(selectedDate));
+    const endOfCal = endOfWeek(endOfMonth(selectedDate));
+    const daysInterval = eachDayOfInterval({ start: startOfCal, end: endOfCal });
+
+    return daysInterval.map(day => {
+      const dateStr = format(day, 'yyyy-MM-dd');
+      const dayExp = expenses.filter(e => e.date === dateStr);
+      const totalSpent = dayExp.reduce((sum, e) => sum + e.amount, 0);
+
+      return {
+        date: day,
+        dateString: dateStr,
+        dayNumber: format(day, 'd'),
+        isCurrentMonth: isSameMonth(day, selectedDate),
+        isToday: isSameDay(day, new Date()),
+        totalSpent,
+        transactions: dayExp,
+      };
+    });
+  }, [selectedDate, expenses]);
+
+  const maxHeatmapSpent = React.useMemo(() => {
+    // only count current month's transactions for the scale max to avoid skewing from other months
+    const spends = heatmapDays.filter(d => d.isCurrentMonth).map(d => d.totalSpent);
+    return Math.max(...spends, 0) || 1;
+  }, [heatmapDays]);
+
+  const heatmapColorScale = React.useMemo(() => {
+    // using d3 linear scale to map spending dynamically to color range
+    // No spend, low spend, medium spend, high spend
+    return d3.scaleLinear<string>()
+      .domain([0, maxHeatmapSpent * 0.15, maxHeatmapSpent * 0.5, maxHeatmapSpent])
+      .range(isDarkMode
+        ? ['rgba(31, 41, 55, 0.4)', 'rgba(79, 70, 229, 0.25)', 'rgba(79, 70, 229, 0.65)', 'rgba(99, 102, 241, 1)']
+        : ['rgba(243, 244, 246, 0.7)', 'rgba(224, 231, 255, 0.8)', 'rgba(99, 102, 241, 0.85)', 'rgba(49, 46, 129, 1)']
+      );
+  }, [maxHeatmapSpent, isDarkMode]);
+
+  const activeHeatmapDayData = React.useMemo(() => {
+    if (!selectedHeatmapDay) return null;
+    return heatmapDays.find(d => d.dateString === selectedHeatmapDay) || null;
+  }, [selectedHeatmapDay, heatmapDays]);
 
   // --- 6-Month Budget vs Spending Line Chart calculations ---
   const last6MonthsList = React.useMemo(() => {
@@ -2825,6 +2874,206 @@ function Dashboard({ expenses, incomes = [], recurringExpenses, isDarkMode, budg
               />
             </LineChart>
           </ResponsiveContainer>
+        </div>
+      </div>
+
+      {/* 5-Week Weekly Calendar Spending Heatmap Card */}
+      <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-800 p-6 transition-colors duration-200">
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 mb-6">
+          <div className="flex items-center gap-3">
+            <div className="p-2 bg-indigo-50 dark:bg-indigo-950/40 rounded-xl">
+              <Calendar className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />
+            </div>
+            <div>
+              <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-50 uppercase tracking-wider text-[10px] text-indigo-600 dark:text-indigo-400">Spending Density Engine</h3>
+              <h2 className="text-base font-bold text-gray-900 dark:text-gray-50 leading-tight">Weekly Spending Heatmap Calendar</h2>
+              <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
+                Visualizing daily spending velocity in a classic calendar layout. Brighter indices represent heavy expenditure peaks.
+              </p>
+            </div>
+          </div>
+
+          {/* Scale Legend */}
+          <div className="flex items-center gap-3 text-xs bg-gray-50 dark:bg-gray-800/50 p-2 rounded-xl border border-gray-100 dark:border-gray-800">
+            <span className="text-[10px] text-gray-400 dark:text-gray-500 uppercase font-bold tracking-wider">Spent Intensity:</span>
+            <div className="flex items-center gap-1">
+              <span className="text-[10px] text-gray-500 dark:text-gray-400">₹0</span>
+              <div className="flex h-3.5 w-24 rounded-md overflow-hidden border border-gray-200 dark:border-gray-700">
+                <div className="flex-1 bg-gray-105 dark:bg-gray-850" style={{ backgroundColor: heatmapColorScale(0) }} />
+                <div className="flex-1" style={{ backgroundColor: heatmapColorScale(maxHeatmapSpent * 0.15) }} />
+                <div className="flex-1" style={{ backgroundColor: heatmapColorScale(maxHeatmapSpent * 0.5) }} />
+                <div className="flex-1" style={{ backgroundColor: heatmapColorScale(maxHeatmapSpent) }} />
+              </div>
+              <span className="text-[10px] text-gray-500 dark:text-gray-400 font-medium">₹{maxHeatmapSpent ? Math.round(maxHeatmapSpent).toLocaleString('en-IN') : '10K'}+</span>
+            </div>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+          {/* Main Calendar Heatmap Grid */}
+          <div className="lg:col-span-7 space-y-4">
+            <div className="grid grid-cols-7 gap-2 text-center text-xs font-semibold text-gray-400 dark:text-gray-500">
+              {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((d) => (
+                <div key={d} className="py-1 uppercase text-[10px] tracking-wider font-bold">{d}</div>
+              ))}
+            </div>
+
+            <div className="grid grid-cols-7 gap-2.5">
+              {heatmapDays.map((day, idx) => {
+                const colorValue = heatmapColorScale(day.totalSpent);
+                const isSelected = selectedHeatmapDay === day.dateString;
+                
+                return (
+                  <motion.div
+                    key={idx}
+                    whileHover={{ scale: day.isCurrentMonth ? 1.06 : 1 }}
+                    onClick={() => {
+                      if (day.isCurrentMonth) {
+                        setSelectedHeatmapDay(isSelected ? null : day.dateString);
+                      }
+                    }}
+                    onMouseEnter={() => {
+                      if (day.isCurrentMonth && !selectedHeatmapDay) {
+                        setSelectedHeatmapDay(day.dateString);
+                      }
+                    }}
+                    onMouseLeave={() => {
+                      if (day.isCurrentMonth && selectedHeatmapDay === day.dateString && !selectedHeatmapDay) {
+                        setSelectedHeatmapDay(null);
+                      }
+                    }}
+                    className={cn(
+                      "aspect-square rounded-xl flex flex-col justify-between p-1.5 transition-all cursor-pointer relative group",
+                      day.isCurrentMonth 
+                        ? "shadow-sm border border-gray-100/50 dark:border-gray-800/10" 
+                        : "opacity-20 cursor-not-allowed",
+                      isSelected && day.isCurrentMonth && "ring-3 ring-indigo-500 ring-offset-2 dark:ring-indigo-400 dark:ring-offset-gray-900 duration-150 z-10"
+                    )}
+                    style={{
+                      backgroundColor: day.isCurrentMonth ? colorValue : undefined
+                    }}
+                  >
+                    {/* Day number */}
+                    <span className={cn(
+                      "text-xs font-bold self-start leading-none",
+                      day.isCurrentMonth 
+                        ? day.totalSpent > maxHeatmapSpent * 0.4
+                          ? "text-white" 
+                          : "text-gray-700 dark:text-gray-300"
+                        : "text-gray-400 dark:text-gray-600",
+                      day.isToday && "text-blue-600 dark:text-blue-400 underline decoration-2 underline-offset-2 font-black"
+                    )}>
+                      {day.dayNumber}
+                    </span>
+
+                    {/* Spend Indicator Dot */}
+                    {day.totalSpent > 0 && day.isCurrentMonth && (
+                      <span className={cn(
+                        "text-[9px] font-extrabold font-mono text-right leading-none self-end mt-1 truncate max-w-full",
+                        day.totalSpent > maxHeatmapSpent * 0.4
+                          ? "text-white"
+                          : "text-indigo-600 dark:text-indigo-400"
+                      )}>
+                        ₹{day.totalSpent >= 1000 
+                          ? `${(day.totalSpent / 1000).toFixed(day.totalSpent % 1000 === 0 ? 0 : 1)}k`
+                          : day.totalSpent.toFixed(0)
+                        }
+                      </span>
+                    )}
+
+                    {/* Subtle micro tooltip on native title for accessibility */}
+                    <title>{`${day.dateString}: ₹${day.totalSpent.toLocaleString('en-IN')} spent`}</title>
+                  </motion.div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Details Panel for active day */}
+          <div className="lg:col-span-5 bg-gray-50 dark:bg-gray-900/40 rounded-2xl p-5 border border-gray-100 dark:border-gray-800/80 flex flex-col justify-between min-h-[300px]">
+            <AnimatePresence mode="wait">
+              {activeHeatmapDayData && activeHeatmapDayData.isCurrentMonth ? (
+                <motion.div
+                  key={activeHeatmapDayData.dateString}
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -10 }}
+                  transition={{ duration: 0.18 }}
+                  className="space-y-4 h-full flex flex-col justify-between"
+                >
+                  <div className="space-y-4">
+                    <div className="flex items-center justify-between border-b border-gray-100 dark:border-gray-800 pb-3">
+                      <div>
+                        <span className="text-[9px] bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-400 font-extrabold px-2 py-0.5 rounded-full uppercase tracking-wider block w-fit mb-1">
+                          Day Detail View
+                        </span>
+                        <h4 className="text-sm font-black text-gray-950 dark:text-gray-50">
+                          {format(activeHeatmapDayData.date, 'EEEE, MMMM dd, yyyy')}
+                        </h4>
+                      </div>
+                      {activeHeatmapDayData.totalSpent > 0 && (
+                        <div className="text-right">
+                          <span className="text-[10px] text-gray-400 uppercase font-bold tracking-wider block">Total Spent</span>
+                          <span className="text-base font-black text-indigo-650 dark:text-indigo-450">
+                            ₹{activeHeatmapDayData.totalSpent.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+
+                    {activeHeatmapDayData.transactions.length === 0 ? (
+                      <div className="flex flex-col items-center justify-center py-12 text-center text-gray-450 dark:text-gray-550">
+                        <PiggyBank className="w-8 h-8 text-gray-300 dark:text-gray-700 mb-2" />
+                        <span className="text-xs font-bold uppercase tracking-wider text-emerald-600 dark:text-emerald-500">No Spending Recorded</span>
+                        <p className="text-[11px] max-w-[200px] mt-1">Excellent job! You did not tap your wallet on this date.</p>
+                      </div>
+                    ) : (
+                      <div className="space-y-2.5 max-h-56 overflow-y-auto pr-1">
+                        <span className="text-[10px] text-gray-450 dark:text-gray-500 uppercase font-black tracking-wider block mb-1">
+                          Day's Expenditure Ledger ({activeHeatmapDayData.transactions.length})
+                        </span>
+                        <div className="space-y-2">
+                          {activeHeatmapDayData.transactions.map((t) => (
+                            <div 
+                              key={t.id} 
+                              className="bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-805 p-2.5 rounded-xl flex items-center justify-between hover:bg-gray-50 dark:hover:bg-gray-850/50 transition-colors"
+                            >
+                              <div className="min-w-0 pr-2">
+                                <p className="text-xs font-black text-gray-950 dark:text-gray-50 truncate">{t.description}</p>
+                                <span className="text-[9px] bg-gray-105 dark:bg-gray-800 px-1.5 py-0.5 rounded text-gray-600 dark:text-gray-400 font-extrabold uppercase mt-1 inline-block">
+                                  {t.category}
+                                </span>
+                              </div>
+                              <span className="text-xs font-black text-gray-950 dark:text-gray-50 flex-shrink-0">
+                                ₹{t.amount.toLocaleString('en-IN')}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800/80 p-3 rounded-xl mt-3 flex items-center justify-between text-xs">
+                    <span className="text-gray-450 dark:text-gray-500 uppercase text-[9px] tracking-wider font-extrabold">Relative Peak Percent</span>
+                    <span className="font-bold text-gray-950 dark:text-gray-100 font-mono">
+                      {((activeHeatmapDayData.totalSpent / maxHeatmapSpent) * 100).toFixed(0)}%
+                    </span>
+                  </div>
+                </motion.div>
+              ) : (
+                <div className="h-full flex flex-col items-center justify-center text-center py-16">
+                  <div className="p-3 bg-indigo-50/60 dark:bg-indigo-950/20 rounded-full mb-3 text-indigo-500 dark:text-indigo-400">
+                    <Sparkles className="w-6 h-6 animate-pulse" />
+                  </div>
+                  <h4 className="text-xs font-bold text-gray-900 dark:text-gray-200 uppercase tracking-widest">Interactive Lens</h4>
+                  <p className="text-[11px] text-gray-400 mt-1.5 max-w-[220px]">
+                    Hover over or select any calendar day to analyze detailed ledger breakdowns and spend concentrations in real-time.
+                  </p>
+                </div>
+              )}
+            </AnimatePresence>
+          </div>
         </div>
       </div>
 
