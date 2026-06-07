@@ -2659,38 +2659,49 @@ function Dashboard({ expenses, incomes = [], recurringExpenses, isDarkMode, budg
             <PieChartIcon className="w-4 h-4 text-gray-500 dark:text-gray-400" />
             Spending by Category
           </h3>
-          <div key={selectedDashboardMonth} className="h-64">
-            {pieData.length > 0 ? (
-              <ResponsiveContainer width="100%" height="100%">
-                <PieChart>
-                  <Pie
-                    data={pieData}
-                    cx="50%"
-                    cy="50%"
-                    innerRadius={60}
-                    outerRadius={80}
-                    paddingAngle={5}
-                    dataKey="value"
-                    stroke={isDarkMode ? '#111827' : '#FFFFFF'}
-                    strokeWidth={2}
-                    isAnimationActive={true}
-                    animationDuration={800}
-                    animationEasing="ease-out"
-                  >
-                    {pieData.map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={CATEGORY_COLORS[entry.name] || CATEGORY_COLORS.Other} />
-                    ))}
-                  </Pie>
-                  <RechartsTooltip 
-                    formatter={(value: number) => `₹${value.toFixed(2)}`}
-                    contentStyle={tooltipStyle}
-                    itemStyle={{ color: isDarkMode ? '#F9FAFB' : '#111827' }}
-                  />
-                </PieChart>
-              </ResponsiveContainer>
-            ) : (
-              <div className="h-full flex items-center justify-center text-gray-400 dark:text-gray-500 text-sm">No data to display</div>
-            )}
+          <div className="h-64 relative overflow-hidden">
+            <AnimatePresence mode="wait">
+              <motion.div
+                key={selectedDashboardMonth}
+                initial={{ opacity: 0, scale: 0.96 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.96 }}
+                transition={{ duration: 0.3, ease: [0.4, 0, 0.2, 1] }}
+                className="w-full h-full"
+              >
+                {pieData.length > 0 ? (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie
+                        data={pieData}
+                        cx="50%"
+                        cy="50%"
+                        innerRadius={60}
+                        outerRadius={80}
+                        paddingAngle={5}
+                        dataKey="value"
+                        stroke={isDarkMode ? '#111827' : '#FFFFFF'}
+                        strokeWidth={2}
+                        isAnimationActive={true}
+                        animationDuration={600}
+                        animationEasing="ease-out"
+                      >
+                        {pieData.map((entry, index) => (
+                          <Cell key={`cell-${index}`} fill={CATEGORY_COLORS[entry.name] || CATEGORY_COLORS.Other} />
+                        ))}
+                      </Pie>
+                      <RechartsTooltip 
+                        formatter={(value: number) => `₹${value.toFixed(2)}`}
+                        contentStyle={tooltipStyle}
+                        itemStyle={{ color: isDarkMode ? '#F9FAFB' : '#111827' }}
+                      />
+                    </PieChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <div className="h-full flex items-center justify-center text-gray-400 dark:text-gray-500 text-sm">No data to display</div>
+                )}
+              </motion.div>
+            </AnimatePresence>
           </div>
         </div>
 
@@ -2699,29 +2710,40 @@ function Dashboard({ expenses, incomes = [], recurringExpenses, isDarkMode, budg
             <TrendingUp className="w-4 h-4 text-gray-500 dark:text-gray-400" />
             Last 7 Days
           </h3>
-          <div key={expenses.length} className="h-64">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={barData}>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={isDarkMode ? '#374151' : '#E5E7EB'} />
-                <XAxis dataKey="date" axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: isDarkMode ? '#9CA3AF' : '#6B7280' }} dy={10} />
-                <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: isDarkMode ? '#9CA3AF' : '#6B7280' }} tickFormatter={(val) => `₹${val}`} />
-                <RechartsTooltip 
-                  cursor={{ fill: isDarkMode ? '#374151' : '#F3F4F6' }}
-                  formatter={(value: number) => [`₹${value.toFixed(2)}`, 'Spent']}
-                  contentStyle={tooltipStyle}
-                  itemStyle={{ color: isDarkMode ? '#F9FAFB' : '#111827' }}
-                />
-                <Bar 
-                  dataKey="amount" 
-                  fill="#3B82F6" 
-                  radius={[4, 4, 0, 0]} 
-                  maxBarSize={40}
-                  isAnimationActive={true}
-                  animationDuration={800}
-                  animationEasing="ease-out"
-                />
-              </BarChart>
-            </ResponsiveContainer>
+          <div className="h-64 relative overflow-hidden">
+            <AnimatePresence mode="wait">
+              <motion.div
+                key={`${expenses.length}-${selectedDashboardMonth}`}
+                initial={{ opacity: 0, scale: 0.97, y: 8 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.97, y: -8 }}
+                transition={{ duration: 0.28, ease: [0.4, 0, 0.2, 1] }}
+                className="w-full h-full"
+              >
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={barData}>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={isDarkMode ? '#374151' : '#E5E7EB'} />
+                    <XAxis dataKey="date" axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: isDarkMode ? '#9CA3AF' : '#6B7280' }} dy={10} />
+                    <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: isDarkMode ? '#9CA3AF' : '#6B7280' }} tickFormatter={(val) => `₹${val}`} />
+                    <RechartsTooltip 
+                      cursor={{ fill: isDarkMode ? '#374151' : '#F3F4F6' }}
+                      formatter={(value: number) => [`₹${value.toFixed(2)}`, 'Spent']}
+                      contentStyle={tooltipStyle}
+                      itemStyle={{ color: isDarkMode ? '#F9FAFB' : '#111827' }}
+                    />
+                    <Bar 
+                      dataKey="amount" 
+                      fill="#3B82F6" 
+                      radius={[4, 4, 0, 0]} 
+                      maxBarSize={40}
+                      isAnimationActive={true}
+                      animationDuration={600}
+                      animationEasing="ease-out"
+                    />
+                  </BarChart>
+                </ResponsiveContainer>
+              </motion.div>
+            </AnimatePresence>
           </div>
         </div>
       </div>
@@ -2732,48 +2754,59 @@ function Dashboard({ expenses, incomes = [], recurringExpenses, isDarkMode, budg
           <Activity className="w-4 h-4 text-gray-500 dark:text-gray-400" />
           Monthly Spending Pattern ({format(selectedDate, 'MMMM')})
         </h3>
-        <div key={selectedDashboardMonth} className="h-64 w-full">
-          <ResponsiveContainer width="100%" height="100%">
-            <AreaChart data={monthDailyData}>
-              <defs>
-                <linearGradient id="colorAmount" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#6366f1" stopOpacity={0.3}/>
-                  <stop offset="95%" stopColor="#6366f1" stopOpacity={0}/>
-                </linearGradient>
-              </defs>
-              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={isDarkMode ? '#374151' : '#E5E7EB'} />
-              <XAxis 
-                dataKey="day" 
-                axisLine={false} 
-                tickLine={false} 
-                tick={{ fontSize: 10, fill: isDarkMode ? '#9CA3AF' : '#6B7280' }} 
-                interval={2}
-              />
-              <YAxis 
-                axisLine={false} 
-                tickLine={false} 
-                tick={{ fontSize: 10, fill: isDarkMode ? '#9CA3AF' : '#6B7280' }} 
-                tickFormatter={(val) => `₹${val}`} 
-              />
-              <RechartsTooltip 
-                formatter={(value: number) => [`₹${value.toFixed(2)}`, 'Daily Spent']}
-                labelFormatter={(label) => `Day ${label}`}
-                contentStyle={tooltipStyle}
-                itemStyle={{ color: isDarkMode ? '#F9FAFB' : '#111827' }}
-              />
-              <Area 
-                type="monotone" 
-                dataKey="amount" 
-                stroke="#6366f1" 
-                fillOpacity={1} 
-                fill="url(#colorAmount)" 
-                strokeWidth={2}
-                isAnimationActive={true}
-                animationDuration={800}
-                animationEasing="ease-out"
-              />
-            </AreaChart>
-          </ResponsiveContainer>
+        <div className="h-64 w-full relative overflow-hidden">
+          <AnimatePresence mode="wait">
+            <motion.div
+              key={selectedDashboardMonth}
+              initial={{ opacity: 0, scale: 0.98, y: 10 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.98, y: -10 }}
+              transition={{ duration: 0.3, ease: [0.4, 0, 0.2, 1] }}
+              className="w-full h-full"
+            >
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={monthDailyData}>
+                  <defs>
+                    <linearGradient id="colorAmount" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#6366f1" stopOpacity={0.3}/>
+                      <stop offset="95%" stopColor="#6366f1" stopOpacity={0}/>
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={isDarkMode ? '#374151' : '#E5E7EB'} />
+                  <XAxis 
+                    dataKey="day" 
+                    axisLine={false} 
+                    tickLine={false} 
+                    tick={{ fontSize: 10, fill: isDarkMode ? '#9CA3AF' : '#6B7280' }} 
+                    interval={2}
+                  />
+                  <YAxis 
+                    axisLine={false} 
+                    tickLine={false} 
+                    tick={{ fontSize: 10, fill: isDarkMode ? '#9CA3AF' : '#6B7280' }} 
+                    tickFormatter={(val) => `₹${val}`} 
+                  />
+                  <RechartsTooltip 
+                    formatter={(value: number) => [`₹${value.toFixed(2)}`, 'Daily Spent']}
+                    labelFormatter={(label) => `Day ${label}`}
+                    contentStyle={tooltipStyle}
+                    itemStyle={{ color: isDarkMode ? '#F9FAFB' : '#111827' }}
+                  />
+                  <Area 
+                    type="monotone" 
+                    dataKey="amount" 
+                    stroke="#6366f1" 
+                    fillOpacity={1} 
+                    fill="url(#colorAmount)" 
+                    strokeWidth={2}
+                    isAnimationActive={true}
+                    animationDuration={600}
+                    animationEasing="ease-out"
+                  />
+                </AreaChart>
+              </ResponsiveContainer>
+            </motion.div>
+          </AnimatePresence>
         </div>
       </div>
 
@@ -3140,75 +3173,85 @@ function Dashboard({ expenses, incomes = [], recurringExpenses, isDarkMode, budg
           </div>
         </div>
 
-        {/* Comparison Chart */}
-        <div key={`${compareRange}-${compareChartType}`} className="h-72 w-full mb-6">
-          <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={multiMonthData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={isDarkMode ? '#374151' : '#E5E7EB'} />
-              <XAxis 
-                dataKey="label" 
-                axisLine={false} 
-                tickLine={false} 
-                tick={{ fontSize: 11, fill: isDarkMode ? '#9CA3AF' : '#6B7280' }} 
-              />
-              <YAxis 
-                axisLine={false} 
-                tickLine={false} 
-                tick={{ fontSize: 11, fill: isDarkMode ? '#9CA3AF' : '#6B7280' }} 
-                tickFormatter={(val) => `₹${val}`} 
-              />
-              <RechartsTooltip 
-                formatter={(value: number) => `₹${value.toFixed(2)}`}
-                contentStyle={tooltipStyle}
-                itemStyle={{ color: isDarkMode ? '#F9FAFB' : '#111827' }}
-              />
-              <Legend 
-                verticalAlign="top" 
-                height={36} 
-                iconType="circle"
-                iconSize={8}
-                wrapperStyle={{ fontSize: 11, color: isDarkMode ? '#F9FAFB' : '#111827' }} 
-              />
-              {compareChartType === 'total' ? (
-                <>
-                  <Bar 
-                    dataKey="spent" 
-                    name="Spent" 
-                    fill="#4f46e5" 
-                    radius={[4, 4, 0, 0]} 
-                    maxBarSize={30}
-                    isAnimationActive={true}
-                    animationDuration={800}
-                    animationEasing="ease-out"
+        <div className="h-72 w-full mb-6 relative overflow-hidden">
+          <AnimatePresence mode="wait">
+            <motion.div
+              key={`${compareRange}-${compareChartType}`}
+              initial={{ opacity: 0, scale: 0.98, y: 10 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.98, y: -10 }}
+              transition={{ duration: 0.3, ease: [0.4, 0, 0.2, 1] }}
+              className="w-full h-full"
+            >
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={multiMonthData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={isDarkMode ? '#374151' : '#E5E7EB'} />
+                  <XAxis 
+                    dataKey="label" 
+                    axisLine={false} 
+                    tickLine={false} 
+                    tick={{ fontSize: 11, fill: isDarkMode ? '#9CA3AF' : '#6B7280' }} 
                   />
-                  <Bar 
-                    dataKey="budget" 
-                    name="Budget Limit" 
-                    fill="#10b981" 
-                    radius={[4, 4, 0, 0]} 
-                    maxBarSize={30}
-                    isAnimationActive={true}
-                    animationDuration={800}
-                    animationEasing="ease-out"
+                  <YAxis 
+                    axisLine={false} 
+                    tickLine={false} 
+                    tick={{ fontSize: 11, fill: isDarkMode ? '#9CA3AF' : '#6B7280' }} 
+                    tickFormatter={(val) => `₹${val}`} 
                   />
-                </>
-              ) : (
-                Object.keys(CATEGORY_COLORS).map((category) => (
-                  <Bar 
-                    key={category} 
-                    dataKey={category} 
-                    name={category} 
-                    stackId="a" 
-                    fill={CATEGORY_COLORS[category]} 
-                    maxBarSize={40}
-                    isAnimationActive={true}
-                    animationDuration={800}
-                    animationEasing="ease-out"
+                  <RechartsTooltip 
+                    formatter={(value: number) => `₹${value.toFixed(2)}`}
+                    contentStyle={tooltipStyle}
+                    itemStyle={{ color: isDarkMode ? '#F9FAFB' : '#111827' }}
                   />
-                ))
-              )}
-            </BarChart>
-          </ResponsiveContainer>
+                  <Legend 
+                    verticalAlign="top" 
+                    height={36} 
+                    iconType="circle"
+                    iconSize={8}
+                    wrapperStyle={{ fontSize: 11, color: isDarkMode ? '#F9FAFB' : '#111827' }} 
+                  />
+                  {compareChartType === 'total' ? (
+                    <>
+                      <Bar 
+                        dataKey="spent" 
+                        name="Spent" 
+                        fill="#4f46e5" 
+                        radius={[4, 4, 0, 0]} 
+                        maxBarSize={30}
+                        isAnimationActive={true}
+                        animationDuration={600}
+                        animationEasing="ease-out"
+                      />
+                      <Bar 
+                        dataKey="budget" 
+                        name="Budget Limit" 
+                        fill="#10b981" 
+                        radius={[4, 4, 0, 0]} 
+                        maxBarSize={30}
+                        isAnimationActive={true}
+                        animationDuration={600}
+                        animationEasing="ease-out"
+                      />
+                    </>
+                  ) : (
+                    Object.keys(CATEGORY_COLORS).map((category) => (
+                      <Bar 
+                        key={category} 
+                        dataKey={category} 
+                        name={category} 
+                        stackId="a" 
+                        fill={CATEGORY_COLORS[category]} 
+                        maxBarSize={40}
+                        isAnimationActive={true}
+                        animationDuration={600}
+                        animationEasing="ease-out"
+                      />
+                    ))
+                  )}
+                </BarChart>
+              </ResponsiveContainer>
+            </motion.div>
+          </AnimatePresence>
         </div>
 
         {/* Detailed Table Comparison */}
