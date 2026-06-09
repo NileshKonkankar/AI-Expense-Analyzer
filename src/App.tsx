@@ -5,7 +5,7 @@ import { db, auth, loginWithGoogle, logout } from './firebase';
 import { onAuthStateChanged } from 'firebase/auth';
 import { format, addMonths, subMonths, parse, startOfMonth, endOfMonth, eachDayOfInterval, startOfWeek, endOfWeek, isSameDay, isSameMonth, addYears, subYears } from 'date-fns';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RechartsTooltip, BarChart, Bar, XAxis, YAxis, CartesianGrid, AreaChart, Area, Legend, LineChart, Line } from 'recharts';
-import { Plus, Trash2, LogOut, Loader2, Sparkles, TrendingUp, DollarSign, PieChart as PieChartIcon, Activity, Sun, Moon, Repeat, Lightbulb, Target, Filter, ChevronDown, ChevronUp, X, Search, ChevronLeft, ChevronRight, Calendar, Bell, ChevronFirst, ChevronLast, Printer, AlertTriangle, Mail, Check, PiggyBank } from 'lucide-react';
+import { Plus, Trash2, LogOut, Loader2, Sparkles, TrendingUp, TrendingDown, DollarSign, PieChart as PieChartIcon, Activity, Sun, Moon, Repeat, Lightbulb, Target, Filter, ChevronDown, ChevronUp, X, Search, ChevronLeft, ChevronRight, Calendar, Bell, ChevronFirst, ChevronLast, Printer, AlertTriangle, Mail, Check, PiggyBank } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from './lib/utils';
 import * as d3 from 'd3';
@@ -1790,6 +1790,14 @@ function Dashboard({ expenses, incomes = [], recurringExpenses, isDarkMode, budg
   const monthExpenses = expenses.filter(exp => exp.date.startsWith(selectedDashboardMonth));
   const totalMonthSpent = monthExpenses.reduce((sum, exp) => sum + exp.amount, 0);
   const monthNetBalance = totalMonthIncomes - totalMonthSpent;
+
+  // MoM spending calculations
+  const previousMonthDate = subMonths(parse(selectedDashboardMonth, 'yyyy-MM', new Date()), 1);
+  const previousMonthStr = format(previousMonthDate, 'yyyy-MM');
+  const prevMonthExpenses = expenses.filter(exp => exp.date.startsWith(previousMonthStr));
+  const totalPrevMonthSpent = prevMonthExpenses.reduce((sum, exp) => sum + exp.amount, 0);
+  const momChangeAmount = totalMonthSpent - totalPrevMonthSpent;
+  const momChangePercent = totalPrevMonthSpent > 0 ? (momChangeAmount / totalPrevMonthSpent) * 100 : 0;
   const monthCategoryData = monthExpenses.reduce((acc, exp) => {
     acc[exp.category] = (acc[exp.category] || 0) + exp.amount;
     return acc;
@@ -2581,7 +2589,7 @@ function Dashboard({ expenses, incomes = [], recurringExpenses, isDarkMode, budg
       </div>
 
       {/* Stats Row */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">
         {/* Wallet Balance (All-Time) */}
         <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-800 p-6 transition-colors duration-200">
           <div className="flex items-center gap-3 mb-2 text-gray-500 dark:text-gray-400">
@@ -2649,6 +2657,41 @@ function Dashboard({ expenses, incomes = [], recurringExpenses, isDarkMode, budg
           <p className="text-xs text-gray-500 mt-1">
             {monthNetBalance >= 0 ? "Net saving surplus" : "Net spending deficit"}
           </p>
+        </div>
+
+        {/* Month-over-Month Spending Change Summary Card */}
+        <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-800 p-6 transition-colors duration-200">
+          <div className="flex items-center gap-3 mb-2 text-gray-500 dark:text-gray-400">
+            {momChangeAmount > 0 ? (
+              <TrendingUp className="w-5 h-5 text-amber-500 dark:text-amber-400" />
+            ) : momChangeAmount < 0 ? (
+              <TrendingDown className="w-5 h-5 text-emerald-500 dark:text-emerald-400" />
+            ) : (
+              <Activity className="w-5 h-5 text-gray-400 dark:text-gray-500" />
+            )}
+            <span className="font-medium text-sm">MoM Spend Shift</span>
+          </div>
+
+          <p className={cn(
+            "text-3xl font-bold transition-all",
+            momChangeAmount > 0 ? "text-amber-600 dark:text-amber-450" : momChangeAmount < 0 ? "text-emerald-600 dark:text-emerald-400" : "text-gray-700 dark:text-gray-300"
+          )}>
+            {momChangeAmount > 0 ? '+' : ''}₹{Math.abs(momChangeAmount).toLocaleString('en-IN', { maximumFractionDigits: 2 })}
+          </p>
+
+          <div className="mt-1 flex flex-col gap-0.5">
+            <div className="flex items-center gap-1.5 text-xs">
+              <span className={cn(
+                "font-bold",
+                momChangeAmount > 0 ? "text-amber-600 dark:text-amber-500" : momChangeAmount < 0 ? "text-emerald-600 dark:text-emerald-500" : "text-gray-500"
+              )}>
+                {momChangeAmount > 0 ? 'Increased by' : momChangeAmount < 0 ? 'Decreased by' : 'No change'} {totalPrevMonthSpent > 0 ? `${Math.abs(momChangePercent).toFixed(1)}%` : ''}
+              </span>
+            </div>
+            <span className="text-[10px] text-gray-400 dark:text-gray-500">
+              vs. ₹{totalPrevMonthSpent.toLocaleString('en-IN', { maximumFractionDigits: 0 })} in {format(previousMonthDate, 'MMM yyyy')}
+            </span>
+          </div>
         </div>
       </div>
 

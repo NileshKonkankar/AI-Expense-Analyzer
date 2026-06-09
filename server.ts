@@ -5,14 +5,15 @@ import path from "path";
 import fs from "fs";
 import { createServer as createViteServer } from "vite";
 import admin from "firebase-admin";
+import { getFirestore } from "firebase-admin/firestore";
 
 // Initialize Firebase Admin
 const firebaseConfig = JSON.parse(fs.readFileSync("./firebase-applet-config.json", "utf-8"));
-admin.initializeApp({
+const firebaseApp = admin.initializeApp({
   projectId: firebaseConfig.projectId,
 });
 
-const db = admin.firestore();
+const db = getFirestore(firebaseApp, firebaseConfig.firestoreDatabaseId);
 
 async function processRecurringExpenses() {
   console.log(`[${new Date().toISOString()}] Processing recurring expenses...`);
