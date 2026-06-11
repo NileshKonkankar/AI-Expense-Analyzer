@@ -5,7 +5,7 @@ import { db, auth, loginWithGoogle, logout } from './firebase';
 import { onAuthStateChanged } from 'firebase/auth';
 import { format, addMonths, subMonths, parse, startOfMonth, endOfMonth, eachDayOfInterval, startOfWeek, endOfWeek, isSameDay, isSameMonth, addYears, subYears } from 'date-fns';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RechartsTooltip, BarChart, Bar, XAxis, YAxis, CartesianGrid, AreaChart, Area, Legend, LineChart, Line } from 'recharts';
-import { Plus, Trash2, LogOut, Loader2, Sparkles, TrendingUp, TrendingDown, DollarSign, PieChart as PieChartIcon, Activity, Sun, Moon, Repeat, Lightbulb, Target, Filter, ChevronDown, ChevronUp, X, Search, ChevronLeft, ChevronRight, Calendar, Bell, ChevronFirst, ChevronLast, Printer, AlertTriangle, Mail, Check, PiggyBank } from 'lucide-react';
+import { Plus, Trash2, LogOut, Loader2, Sparkles, TrendingUp, TrendingDown, DollarSign, PieChart as PieChartIcon, Activity, Sun, Moon, Repeat, Lightbulb, Target, Filter, ChevronDown, ChevronUp, X, Search, ChevronLeft, ChevronRight, Calendar, Bell, ChevronFirst, ChevronLast, Printer, AlertTriangle, Mail, Check, PiggyBank, Upload, FileSpreadsheet } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from './lib/utils';
 import * as d3 from 'd3';
@@ -697,6 +697,10 @@ export default function App() {
 }
 
 function ExpenseForm({ userId, expenses, categoryRules, budgetGoals, onBudgetExceeded }: { userId: string, expenses: Expense[], categoryRules: CategoryRule[], budgetGoals: BudgetGoal[], onBudgetExceeded: (category: string, month: string, limit: number, newTotalSpent: number, amountExceeded: number) => void }) {
+  // Navigation Tabs
+  const [activeSubTab, setActiveSubTab] = useState<'manual' | 'csv'>('manual');
+
+  // Manual Tracker States
   const [description, setDescription] = useState('');
   const [amount, setAmount] = useState('');
   const [date, setDate] = useState(format(new Date(), 'yyyy-MM-dd'));
@@ -707,13 +711,184 @@ function ExpenseForm({ userId, expenses, categoryRules, budgetGoals, onBudgetExc
   const [isAskingRuleConfirmation, setIsAskingRuleConfirmation] = useState(false);
   const [ruleKeyword, setRuleKeyword] = useState('');
 
+  // CSV Import States
+  const [csvFile, setCsvFile] = useState<File | null>(null);
+  const [csvHeaders, setCsvHeaders] = useState<string[]>([]);
+  const [csvRows, setCsvRows] = useState<string[][]>([]);
+  const [importStep, setImportStep] = useState<'upload' | 'mapping' | 'preview' | 'importing' | 'success'>('upload');
+  const [columnMapping, setColumnMapping] = useState<{
+    date: string;
+    description: string;
+    amount: string;
+    category?: string;
+  }>({ date: '', description: '', amount: '', category: '' });
+  const [parsedExpenses, setParsedExpenses] = useState<Array<{
+    id: string;
+    date: string;
+    description: string;
+    amount: number;
+    category: string;
+    selected: boolean;
+  }>>([]);
+  const [importProgress, setImportProgress] = useState({ current: 0, total: 0, successCount: 0, failedCount: 0 });
+  const [isDragging, setIsDragging] = useState(false);
+  const [csvError, setCsvError] = useState<string | null>(null);
+
+  // --- CSV Parser helper (robust commas, quote escapers, newlines tracker) ---
+  const parseCSV = (text: string): string[][] => {
+    const lines: string[][] = [];
+    let row: string[] = [];
+    let inQuotes = false;
+    let currentWord = '';
+
+    for (let i = 0; i < text.length; i++) {
+      const char = text[i];
+      const nextChar = text[i + 1];
+
+      if (char === '"') {
+        if (inQuotes && nextChar === '"') {
+          currentWord += '"';
+          i++; // Skip escape
+        } else {
+          inQuotes = !inQuotes;
+        }
+      } else if (char === ',' && !inQuotes) {
+        row.push(currentWord.trim());
+        currentWord = '';
+      } else if ((char === '\n' || char === '\r') && !inQuotes) {
+        if (char === '\r' && nextChar === '\n') {
+          i++; // skip standard \n
+        }
+        row.push(currentWord.trim());
+        if (row.length > 0 && row.some(cell => cell !== '')) {
+          lines.push(row);
+        }
+        row = [];
+        currentWord = '';
+      } else {
+        currentWord += char;
+      }
+    }
+    if (currentWord || row.length > 0) {
+      row.push(currentWord.trim());
+      if (row.some(cell => cell !== '')) {
+        lines.push(row);
+      }
+    }
+    return lines;
+  };
+
+  // --- Date auto-formatter to "yyyy-MM-dd" ---
+  const parseAndFormatDate = (dateStr: string): string => {
+    if (!dateStr) return format(new Date(), 'yyyy-MM-dd');
+    const cleanStr = dateStr.trim().replace(/['"]/g, '');
+    
+    // If it perfectly matches yyyy-mm-dd
+    if (/^\d{4}-\d{2}-\d{2}$/.test(cleanStr)) {
+      return cleanStr;
+    }
+
+    const parts = cleanStr.split(/[\/\-\.\s]+/);
+    if (parts.length >= 3) {
+      let day = parseInt(parts[0], 10);
+      let month: number | string = parts[1];
+      let year = parseInt(parts[2], 10);
+
+      const monthNames = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
+      const longMonthNames = ["january", "february", "march", "april", "may", "june", "july", "august", "september", "october", "november", "december"];
+      
+      const parsedMonthIndex = monthNames.indexOf(month.toString().toLowerCase().substring(0, 3));
+      const parsedLongMonthIndex = longMonthNames.indexOf(month.toString().toLowerCase());
+
+      let monthNum = 1;
+      if (parsedMonthIndex !== -1) {
+        monthNum = parsedMonthIndex + 1;
+      } else if (parsedLongMonthIndex !== -1) {
+        monthNum = parsedLongMonthIndex + 1;
+      } else {
+        monthNum = parseInt(month, 10);
+      }
+
+      if (year < 100) {
+        year += year > 50 ? 1900 : 2000;
+      }
+
+      let finalDay = day;
+      let finalMonth = monthNum;
+
+      if (day > 12 && monthNum <= 12) {
+        finalDay = day;
+        finalMonth = monthNum;
+      } else if (monthNum > 12 && day <= 12) {
+        finalDay = monthNum;
+        finalMonth = day;
+      }
+
+      if (!isNaN(year) && !isNaN(finalMonth) && !isNaN(finalDay)) {
+        const yStr = year.toString().padStart(4, '0');
+        const mStr = Math.min(12, Math.max(1, finalMonth)).toString().padStart(2, '0');
+        const dStr = Math.min(31, Math.max(1, finalDay)).toString().padStart(2, '0');
+        return `${yStr}-${mStr}-${dStr}`;
+      }
+    }
+    return format(new Date(), 'yyyy-MM-dd');
+  };
+
+  // --- Dynamic float amount parser ---
+  const parseAmount = (amountStr: string): number => {
+    if (!amountStr) return 0;
+    let cleaned = amountStr.replace(/[₹\$\,\s]/g, '');
+    
+    // Check brackets for negative spent representing debit (absolute value mapped)
+    if (cleaned.startsWith('(') && cleaned.endsWith(')')) {
+      cleaned = '-' + cleaned.substring(1, cleaned.length - 1);
+    }
+    const val = parseFloat(cleaned);
+    return isNaN(val) ? 0 : Math.abs(val);
+  };
+
+  // --- Smart context + keywords Category Classifier helper ---
+  const guessCategory = (desc: string, rules: CategoryRule[]): string => {
+    const lowerDesc = desc.toLowerCase();
+    
+    // 1. Matches user custom category rules
+    const matchedRule = rules.find(rule => 
+      lowerDesc.includes(rule.keyword.toLowerCase())
+    );
+    if (matchedRule) return matchedRule.category;
+
+    // 2. Local fallback dictionary heuristics
+    if (/uber|ola|cab|taxi|train|metro|flight|airline|travel|bus|fuel|petrol|diesel|irctc|parking|toll/i.test(lowerDesc)) {
+      return 'Travel';
+    }
+    if (/zomato|swiggy|restaurant|cafe|food|starbucks|grocery|supermarket|groceries|bakery|eat|dine|mcdonald|pizza|snack|kfc/i.test(lowerDesc)) {
+      return 'Food';
+    }
+    if (/rent|pg|hostel|broker|security deposit|appartment|roommate/i.test(lowerDesc)) {
+      return 'Rent';
+    }
+    if (/electricity|water|wifi|broadband|internet|power|gas|pipeline|phone|recharge|prepaid|postpaid|bill|utility/i.test(lowerDesc)) {
+      return 'Utilities';
+    }
+    if (/netflix|spotify|disney|hotstar|youtube premium|movie|theater|cinema|ticket|game|gaming|pub|club|bar|entertainment|concert|event|show/i.test(lowerDesc)) {
+      return 'Entertainment';
+    }
+    if (/amazon|flipkart|myntra|ajio|shopping|mall|nike|adidas|clothing|fashion|apron|store|checkout/i.test(lowerDesc)) {
+      return 'Shopping';
+    }
+    if (/hospital|pharmacy|medical|doctor|dentist|clinic|health|gym|fitness|supplement|medicine|insurance/i.test(lowerDesc)) {
+      return 'Health';
+    }
+    return 'Other';
+  };
+
+  // --- Manual Mode Handlers ---
   const handleAnalyze = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!description || !amount || !date) return;
 
     setIsSubmitting(true);
     try {
-      // 1. Check for hard matches in custom rules first
       const lowerDesc = description.toLowerCase();
       const matchedRule = categoryRules.find(rule => 
         lowerDesc.includes(rule.keyword.toLowerCase())
@@ -736,7 +911,6 @@ function ExpenseForm({ userId, expenses, categoryRules, budgetGoals, onBudgetExc
         contextStr += `Here are some of the user's past expenses and their corrected categories. Use them as reference for the user's categorization habits:\n${recentExpenses.map(e => `- "${e.description}" -> ${e.category}`).join('\n')}\n\n`;
       }
 
-      // Call AI to categorize
       const response = await ai.models.generateContent({
         model: "gemini-3-flash-preview",
         contents: `${contextStr}Categorize the following expense: "${description}" for amount ₹${amount}. Return only a JSON object with a 'category' string field. Choose from: Food, Rent, Travel, Utilities, Entertainment, Shopping, Health, Other.`,
@@ -768,7 +942,6 @@ function ExpenseForm({ userId, expenses, categoryRules, budgetGoals, onBudgetExc
 
   const handleConfirmNext = async () => {
     if (originalAiCategory && suggestedCategory !== originalAiCategory && !isAskingRuleConfirmation) {
-      // Suggest a good keyword for the rule (simplistic: first two words or full description)
       const words = description.split(' ');
       const suggestedKeyword = words.length > 2 ? words.slice(0, 2).join(' ') : description;
       setRuleKeyword(suggestedKeyword);
@@ -787,7 +960,6 @@ function ExpenseForm({ userId, expenses, categoryRules, budgetGoals, onBudgetExc
     try {
       const category = suggestedCategory || 'Other';
 
-      // Check budget limit exceedance before clearing inputs
       if (frequency === 'none') {
         const expenseMonth = date.substring(0, 7);
         const relativeGoal = budgetGoals.find(b => b.category === category && b.month === expenseMonth);
@@ -816,7 +988,6 @@ function ExpenseForm({ userId, expenses, categoryRules, budgetGoals, onBudgetExc
           createdAt: serverTimestamp()
         });
       } else {
-        // Create recurring expense template
         await addDoc(collection(db, 'recurringExpenses'), {
           userId,
           description,
@@ -852,177 +1023,754 @@ function ExpenseForm({ userId, expenses, categoryRules, budgetGoals, onBudgetExc
     }
   };
 
-  if (isAskingRuleConfirmation && suggestedCategory) {
-    return (
-      <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-800 p-6 transition-colors duration-200 animate-in fade-in zoom-in-95">
-        <div className="flex items-center gap-3 mb-4">
-          <div className="p-2 bg-indigo-100 dark:bg-indigo-900/40 rounded-xl">
-            <Sparkles className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />
-          </div>
-          <h2 className="text-lg font-semibold text-indigo-900 dark:text-indigo-100">
-            Train the AI
-          </h2>
-        </div>
+  // --- CSV Import Wizards Handlers ---
+  const handleFileDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(false);
+    const files = e.dataTransfer.files;
+    if (files && files.length > 0) {
+      processSelectedCsv(files[0]);
+    }
+  };
+
+  const handleFileInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (files && files.length > 0) {
+      processSelectedCsv(files[0]);
+    }
+  };
+
+  const processSelectedCsv = (file: File) => {
+    if (!file.name.endsWith('.csv')) {
+      setCsvError("Only standard .csv file uploads are supported.");
+      return;
+    }
+    setCsvError(null);
+    setCsvFile(file);
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const text = event.target?.result as string;
+      const parsed = parseCSV(text);
+      if (parsed.length < 2) {
+        setCsvError("Requires at least 1 header row and 1 data row to proceed.");
+        return;
+      }
+      
+      const headers = parsed[0];
+      setCsvHeaders(headers);
+      setCsvRows(parsed.slice(1));
+
+      // Attempt matching target database schema keys to CSV columns
+      const matchHeader = (regex: RegExp) => headers.find(h => regex.test(h.toLowerCase().trim())) || '';
+      const guessedDate = matchHeader(/date|time/i);
+      const guessedDesc = matchHeader(/desc|narrat|detail|particular|payee|remark|transaction/i);
+      const guessedAmount = matchHeader(/amount|spent|debit|debit.*amount|val.*change/i) || headers.find(h => /dr/i.test(h.toLowerCase().trim())) || '';
+      const guessedCat = matchHeader(/cat|group|type/i);
+
+      setColumnMapping({
+        date: guessedDate,
+        description: guessedDesc,
+        amount: guessedAmount,
+        category: guessedCat
+      });
+      setImportStep('mapping');
+    };
+    reader.readAsText(file);
+  };
+
+  const handlePreviewParsedData = () => {
+    const dateColIdx = csvHeaders.indexOf(columnMapping.date);
+    const descColIdx = csvHeaders.indexOf(columnMapping.description);
+    const amtColIdx = csvHeaders.indexOf(columnMapping.amount);
+    const catColIdx = columnMapping.category ? csvHeaders.indexOf(columnMapping.category) : -1;
+
+    if (dateColIdx === -1 || descColIdx === -1 || amtColIdx === -1) {
+      setCsvError("Transaction Date, Description, and Amount columns must all be selected for mapping.");
+      return;
+    }
+
+    const previewList = csvRows.map((row, idx) => {
+      const rawDate = row[dateColIdx] || '';
+      const rawDesc = row[descColIdx] || '';
+      const rawAmt = row[amtColIdx] || '';
+      const rawCat = catColIdx !== -1 ? row[catColIdx] : '';
+
+      const formattedDate = parseAndFormatDate(rawDate);
+      const amountNum = parseAmount(rawAmt);
+
+      let finalCat = 'Other';
+      if (rawCat && rawCat.trim()) {
+        const match = Object.keys(CATEGORY_COLORS).find(k => k.toLowerCase() === rawCat.trim().toLowerCase());
+        finalCat = match ? match : guessCategory(rawDesc, categoryRules);
+      } else {
+        finalCat = guessCategory(rawDesc, categoryRules);
+      }
+
+      return {
+        id: `row-${idx}-${Date.now()}`,
+        date: formattedDate,
+        description: rawDesc.trim() || 'Bank Transfer Transaction',
+        amount: amountNum,
+        category: finalCat,
+        selected: amountNum > 0 // auto selected if amount is valid positive value
+      };
+    }).filter(item => item.amount > 0); // Ignore rows with no expense debit records
+
+    if (previewList.length === 0) {
+      setCsvError("No positive expense values were extracted. Please verify amount columns.");
+      return;
+    }
+
+    setParsedExpenses(previewList);
+    setImportStep('preview');
+  };
+
+  const handleBulkImport = async () => {
+    const selectedToImport = parsedExpenses.filter(e => e.selected);
+    if (selectedToImport.length === 0) return;
+
+    setImportStep('importing');
+    setImportProgress({ current: 0, total: selectedToImport.length, successCount: 0, failedCount: 0 });
+
+    let successCount = 0;
+    let failedCount = 0;
+    
+    // Store original database budget trackers to do a combined exceedance check at the end
+    const budgetsToEvaluate: Record<string, { month: string; amountAdded: number }> = {};
+
+    for (let i = 0; i < selectedToImport.length; i++) {
+      const expense = selectedToImport[i];
+      try {
+        await addDoc(collection(db, 'expenses'), {
+          userId,
+          description: expense.description,
+          amount: expense.amount,
+          category: expense.category,
+          date: expense.date,
+          createdAt: serverTimestamp()
+        });
         
-        <div className="space-y-4">
-          <div className="p-4 bg-gray-50 dark:bg-gray-800/50 rounded-xl space-y-3">
-            <p className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed">
-              You corrected the category from <span className="text-gray-500 line-through">{originalAiCategory}</span> to <span className="font-semibold text-indigo-600 dark:text-indigo-400">{suggestedCategory}</span>.
-            </p>
-            <p className="text-sm text-gray-600 dark:text-gray-400">
-              Create a rule so the AI automatically uses <span className="font-medium text-gray-900 dark:text-gray-100">{suggestedCategory}</span> for similar items.
-            </p>
-          </div>
+        successCount++;
+        
+        // Track combined amount mapped toward monthly budget limits
+        const expenseMonth = expense.date.substring(0, 7);
+        const compositeKey = `${expense.category}_${expenseMonth}`;
+        if (!budgetsToEvaluate[compositeKey]) {
+          budgetsToEvaluate[compositeKey] = { month: expenseMonth, amountAdded: 0 };
+        }
+        budgetsToEvaluate[compositeKey].amountAdded += expense.amount;
 
-          <div>
-            <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5 uppercase tracking-wider">Rule Keyword (e.g., "Uber" instead of "Uber Bangalore")</label>
-            <input
-              type="text"
-              value={ruleKeyword}
-              onChange={(e) => setRuleKeyword(e.target.value)}
-              className="w-full px-4 py-2.5 bg-white dark:bg-gray-950 border border-indigo-100 dark:border-indigo-900/50 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none transition-all text-gray-900 dark:text-gray-50 font-medium"
-              placeholder="Enter keyword or phrase"
-            />
-          </div>
+      } catch (err) {
+        console.error("Bulk Import Row write failed: ", err);
+        failedCount++;
+      }
+      setImportProgress(prev => ({
+        ...prev,
+        current: i + 1,
+        successCount,
+        failedCount
+      }));
+    }
 
-          <div className="flex gap-3 pt-2">
-            <button
-              onClick={() => handleConfirmRule(false)}
-              disabled={isSubmitting}
-              className="flex-1 py-2.5 px-4 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-900 dark:text-gray-50 rounded-xl font-medium transition-colors disabled:opacity-70 text-sm"
-            >
-              Skip Rule
-            </button>
-            <button
-              onClick={() => handleConfirmRule(true)}
-              disabled={isSubmitting}
-              className="flex-[1.5] py-2.5 px-4 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-medium transition-colors flex items-center justify-center gap-2 disabled:opacity-70 text-sm shadow-indigo-200 dark:shadow-none shadow-lg"
-            >
-              {isSubmitting ? <><Loader2 className="w-4 h-4 animate-spin" /> Saving...</> : 'Save Rule & Add'}
-            </button>
-          </div>
-        </div>
-      </div>
-    );
-  }
+    // Evaluate budget goals combined warnings at the conclusion of import
+    Object.keys(budgetsToEvaluate).forEach(compositeKey => {
+      const [category, month] = compositeKey.split('_');
+      const limitStats = budgetsToEvaluate[compositeKey];
+      
+      const matchedGoal = budgetGoals.find(b => b.category === category && b.month === limitStats.month);
+      if (matchedGoal) {
+        const currentSpentExcludingThisValue = expenses
+          .filter(e => e.category === category && e.date.substring(0, 7) === limitStats.month)
+          .reduce((sum, e) => sum + e.amount, 0);
 
-  if (suggestedCategory !== null) {
-    return (
-      <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-800 p-6 transition-colors duration-200">
-        <h2 className="text-lg font-semibold mb-4 flex items-center gap-2 text-gray-900 dark:text-gray-50">
-          <Sparkles className="w-5 h-5 text-indigo-600 dark:text-indigo-500" />
-          Confirm Category
-        </h2>
-        <div className="space-y-4">
-          <div className="p-4 bg-gray-50 dark:bg-gray-800/50 rounded-xl space-y-2">
-            <p className="text-sm text-gray-600 dark:text-gray-400"><span className="font-medium text-gray-900 dark:text-gray-100">Description:</span> {description}</p>
-            <p className="text-sm text-gray-600 dark:text-gray-400"><span className="font-medium text-gray-900 dark:text-gray-100">Amount:</span> ₹{amount}</p>
-            <p className="text-sm text-gray-600 dark:text-gray-400"><span className="font-medium text-gray-900 dark:text-gray-100">{frequency === 'none' ? 'Date:' : 'Start Date:'}</span> {date}</p>
-            {frequency !== 'none' && (
-              <p className="text-sm text-gray-600 dark:text-gray-400"><span className="font-medium text-gray-900 dark:text-gray-100">Repeat:</span> <span className="capitalize">{frequency}</span></p>
-            )}
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">AI Suggested Category (Edit to Correct)</label>
-            <select
-              value={suggestedCategory}
-              onChange={(e) => setSuggestedCategory(e.target.value)}
-              className="w-full px-4 py-2 bg-white dark:bg-gray-950 border border-gray-200 dark:border-gray-700 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all text-gray-900 dark:text-gray-50"
-            >
-              {Object.keys(CATEGORY_COLORS).map((cat) => (
-                <option key={cat} value={cat}>{cat}</option>
-              ))}
-            </select>
-            <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
-              Correcting categories helps the AI learn your habits for future expenses!
-            </p>
-          </div>
-          <div className="flex gap-3 pt-2">
-            <button
-              onClick={() => { setSuggestedCategory(null); setOriginalAiCategory(null); }}
-              disabled={isSubmitting}
-              className="flex-[1] py-2.5 px-4 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-900 dark:text-gray-50 rounded-xl font-medium transition-colors disabled:opacity-70"
-            >
-              Back
-            </button>
-            <button
-              onClick={handleConfirmNext}
-              disabled={isSubmitting}
-              className="flex-[2] py-2.5 px-4 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-medium transition-colors flex items-center justify-center gap-2 disabled:opacity-70"
-            >
-              {isSubmitting ? <><Loader2 className="w-4 h-4 animate-spin" /> Adding...</> : 'Confirm'}
-            </button>
-          </div>
-        </div>
-      </div>
-    );
-  }
+        const newTargetTotal = currentSpentExcludingThisValue + limitStats.amountAdded;
+        if (newTargetTotal > matchedGoal.amount) {
+          const exceededSum = newTargetTotal - matchedGoal.amount;
+          // Trigger budget toast alert notification
+          onBudgetExceeded(category, limitStats.month, matchedGoal.amount, newTargetTotal, exceededSum);
+        }
+      }
+    });
+
+    setImportStep('success');
+  };
+
+  const handleResetCsvImport = () => {
+    setCsvFile(null);
+    setCsvHeaders([]);
+    setCsvRows([]);
+    setColumnMapping({ date: '', description: '', amount: '', category: '' });
+    setParsedExpenses([]);
+    setCsvError(null);
+    setImportStep('upload');
+  };
 
   return (
     <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-800 p-6 transition-colors duration-200">
-      <h2 className="text-lg font-semibold mb-4 flex items-center gap-2 text-gray-900 dark:text-gray-50">
-        <Plus className="w-5 h-5 text-blue-600 dark:text-blue-500" />
-        Add Expense
-      </h2>
-      <form onSubmit={handleAnalyze} className="space-y-4">
-        <div>
-          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Description</label>
-          <input
-            type="text"
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            placeholder="e.g., Uber to airport"
-            className="w-full px-4 py-2 bg-white dark:bg-gray-950 border border-gray-200 dark:border-gray-700 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all text-gray-900 dark:text-gray-50 placeholder-gray-400 dark:placeholder-gray-500"
-            required
-          />
-        </div>
-        <div className="grid grid-cols-2 gap-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Amount (₹)</label>
-            <input
-              type="number"
-              step="0.01"
-              min="0.01"
-              value={amount}
-              onChange={(e) => setAmount(e.target.value)}
-              placeholder="0.00"
-              className="w-full px-4 py-2 bg-white dark:bg-gray-950 border border-gray-200 dark:border-gray-700 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all text-gray-900 dark:text-gray-50 placeholder-gray-400 dark:placeholder-gray-500"
-              required
-            />
-          </div>
-          <DatePicker
-            label={frequency === 'none' ? 'Date' : 'Start Date'}
-            value={date}
-            onChange={(val) => setDate(val)}
-            className="w-full"
-          />
-        </div>
-        <div>
-          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Repeat</label>
-          <select
-            value={frequency}
-            onChange={(e) => setFrequency(e.target.value)}
-            className="w-full px-4 py-2 bg-white dark:bg-gray-950 border border-gray-200 dark:border-gray-700 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all text-gray-900 dark:text-gray-50"
+      {/* Sub tabs switch */}
+      {importStep !== 'importing' && (
+        <div className="flex border-b border-gray-100 dark:border-gray-800 pb-3 mb-5 gap-2">
+          <button
+            type="button"
+            onClick={() => setActiveSubTab('manual')}
+            className={cn(
+              "flex-1 py-2 text-sm font-semibold rounded-lg transition-all flex items-center justify-center gap-1.5",
+              activeSubTab === 'manual'
+                ? "bg-blue-50 dark:bg-blue-900/40 text-blue-600 dark:text-blue-400"
+                : "text-gray-500 hover:text-gray-900 dark:hover:text-gray-300"
+            )}
           >
-            <option value="none">None (One-time)</option>
-            <option value="daily">Daily</option>
-            <option value="weekly">Weekly</option>
-            <option value="monthly">Monthly</option>
-            <option value="yearly">Yearly</option>
-          </select>
+            <Plus className="w-4 h-4" />
+            Manual Entry
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setActiveSubTab('csv');
+              if (importStep === 'success') {
+                handleResetCsvImport();
+              }
+            }}
+            className={cn(
+              "flex-1 py-2 text-sm font-semibold rounded-lg transition-all flex items-center justify-center gap-1.5",
+              activeSubTab === 'csv'
+                ? "bg-blue-50 dark:bg-blue-900/40 text-blue-600 dark:text-blue-400"
+                : "text-gray-500 hover:text-gray-900 dark:hover:text-gray-300"
+            )}
+          >
+            <FileSpreadsheet className="w-4 h-4" />
+            CSV Bank Import
+          </button>
         </div>
-        <button
-          type="submit"
-          disabled={isSubmitting}
-          className="w-full py-2.5 px-4 bg-gray-900 dark:bg-blue-600 hover:bg-gray-800 dark:hover:bg-blue-700 text-white rounded-xl font-medium transition-colors flex items-center justify-center gap-2 disabled:opacity-70"
-        >
-          {isSubmitting ? (
-            <><Loader2 className="w-4 h-4 animate-spin" /> Analyzing...</>
+      )}
+
+      {activeSubTab === 'manual' ? (
+        // --- MANUAL FORM ---
+        <div>
+          {isAskingRuleConfirmation && suggestedCategory ? (
+            <div className="animate-in fade-in zoom-in-95 duration-200">
+              <div className="flex items-center gap-3 mb-4">
+                <div className="p-2 bg-indigo-100 dark:bg-indigo-900/40 rounded-xl">
+                  <Sparkles className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />
+                </div>
+                <h2 className="text-lg font-semibold text-indigo-900 dark:text-indigo-100">
+                  Train the AI
+                </h2>
+              </div>
+              <div className="space-y-4">
+                <div className="p-4 bg-gray-50 dark:bg-gray-800/50 rounded-xl space-y-3">
+                  <p className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed">
+                    You corrected the category from <span className="text-gray-500 line-through">{originalAiCategory}</span> to <span className="font-semibold text-indigo-600 dark:text-indigo-400">{suggestedCategory}</span>.
+                  </p>
+                  <p className="text-sm text-gray-600 dark:text-gray-400">
+                    Create a rule so the AI automatically uses <span className="font-medium text-gray-900 dark:text-gray-100">{suggestedCategory}</span> for similar items.
+                  </p>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5 uppercase tracking-wider">Rule Keyword (e.g., "Uber" instead of "Uber Bangalore" )</label>
+                  <input
+                    type="text"
+                    value={ruleKeyword}
+                    onChange={(e) => setRuleKeyword(e.target.value)}
+                    className="w-full px-4 py-2.5 bg-white dark:bg-gray-950 border border-indigo-100 dark:border-indigo-900/50 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none transition-all text-gray-900 dark:text-gray-50 font-medium"
+                    placeholder="Enter keyword or phrase"
+                  />
+                </div>
+                <div className="flex gap-3 pt-2">
+                  <button
+                    onClick={() => handleConfirmRule(false)}
+                    disabled={isSubmitting}
+                    className="flex-1 py-2.5 px-4 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-900 dark:text-gray-50 rounded-xl font-medium transition-colors disabled:opacity-70 text-sm"
+                  >
+                    Skip Rule
+                  </button>
+                  <button
+                    onClick={() => handleConfirmRule(true)}
+                    disabled={isSubmitting}
+                    className="flex-[1.5] py-2.5 px-4 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-medium transition-colors flex items-center justify-center gap-2 disabled:opacity-70 text-sm shadow-indigo-200 dark:shadow-none shadow-lg"
+                  >
+                    {isSubmitting ? <><Loader2 className="w-4 h-4 animate-spin" /> Saving...</> : 'Save Rule & Add'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          ) : suggestedCategory !== null ? (
+            <div className="animate-in fade-in zoom-in-95 duration-200">
+              <h2 className="text-lg font-semibold mb-4 flex items-center gap-2 text-gray-900 dark:text-gray-50">
+                <Sparkles className="w-5 h-5 text-indigo-600 dark:text-indigo-500" />
+                Confirm Category
+              </h2>
+              <div className="space-y-4">
+                <div className="p-4 bg-gray-50 dark:bg-gray-800/50 rounded-xl space-y-2">
+                  <p className="text-sm text-gray-600 dark:text-gray-400"><span className="font-medium text-gray-900 dark:text-gray-100">Description:</span> {description}</p>
+                  <p className="text-sm text-gray-600 dark:text-gray-400"><span className="font-medium text-gray-900 dark:text-gray-100">Amount:</span> ₹{amount}</p>
+                  <p className="text-sm text-gray-600 dark:text-gray-400"><span className="font-medium text-gray-900 dark:text-gray-100">{frequency === 'none' ? 'Date:' : 'Start Date:'}</span> {date}</p>
+                  {frequency !== 'none' && (
+                    <p className="text-sm text-gray-600 dark:text-gray-400"><span className="font-medium text-gray-900 dark:text-gray-100">Repeat:</span> <span className="capitalize">{frequency}</span></p>
+                  )}
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">AI Suggested Category (Edit to Correct)</label>
+                  <select
+                    value={suggestedCategory}
+                    onChange={(e) => setSuggestedCategory(e.target.value)}
+                    className="w-full px-4 py-2 bg-white dark:bg-gray-950 border border-gray-200 dark:border-gray-700 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all text-gray-900 dark:text-gray-50"
+                  >
+                    {Object.keys(CATEGORY_COLORS).map((cat) => (
+                      <option key={cat} value={cat}>{cat}</option>
+                    ))}
+                  </select>
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
+                    Correcting categories helps the AI learn your habits for future expenses!
+                  </p>
+                </div>
+                <div className="flex gap-3 pt-2">
+                  <button
+                    onClick={() => { setSuggestedCategory(null); setOriginalAiCategory(null); }}
+                    disabled={isSubmitting}
+                    className="flex-[1] py-2.5 px-4 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-900 dark:text-gray-50 rounded-xl font-medium transition-colors disabled:opacity-70"
+                  >
+                    Back
+                  </button>
+                  <button
+                    onClick={handleConfirmNext}
+                    disabled={isSubmitting}
+                    className="flex-[2] py-2.5 px-4 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-medium transition-colors flex items-center justify-center gap-2 disabled:opacity-70"
+                  >
+                    {isSubmitting ? <><Loader2 className="w-4 h-4 animate-spin" /> Adding...</> : 'Confirm'}
+                  </button>
+                </div>
+              </div>
+            </div>
           ) : (
-            <><Sparkles className="w-4 h-4" /> Analyze & Review</>
+            <form onSubmit={handleAnalyze} className="space-y-4 animate-in fade-in duration-200">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Description</label>
+                <input
+                  type="text"
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
+                  placeholder="e.g., Uber to airport"
+                  className="w-full px-4 py-2 bg-white dark:bg-gray-950 border border-gray-200 dark:border-gray-700 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all text-gray-900 dark:text-gray-50 placeholder-gray-400 dark:placeholder-gray-500"
+                  required
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Amount (₹)</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0.01"
+                    value={amount}
+                    onChange={(e) => setAmount(e.target.value)}
+                    placeholder="0.00"
+                    className="w-full px-4 py-2 bg-white dark:bg-gray-950 border border-gray-200 dark:border-gray-700 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all text-gray-900 dark:text-gray-50 placeholder-gray-400 dark:placeholder-gray-500"
+                    required
+                  />
+                </div>
+                <DatePicker
+                  label={frequency === 'none' ? 'Date' : 'Start Date'}
+                  value={date}
+                  onChange={(val) => setDate(val)}
+                  className="w-full"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Repeat</label>
+                <select
+                  value={frequency}
+                  onChange={(e) => setFrequency(e.target.value)}
+                  className="w-full px-4 py-2 bg-white dark:bg-gray-950 border border-gray-200 dark:border-gray-700 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all text-gray-900 dark:text-gray-50"
+                >
+                  <option value="none">None (One-time)</option>
+                  <option value="daily">Daily</option>
+                  <option value="weekly">Weekly</option>
+                  <option value="monthly">Monthly</option>
+                  <option value="yearly">Yearly</option>
+                </select>
+              </div>
+              <button
+                type="submit"
+                disabled={isSubmitting}
+                className="w-full py-2.5 px-4 bg-gray-900 dark:bg-blue-600 hover:bg-gray-800 dark:hover:bg-blue-700 text-white rounded-xl font-medium transition-colors flex items-center justify-center gap-2 disabled:opacity-70"
+              >
+                {isSubmitting ? (
+                  <><Loader2 className="w-4 h-4 animate-spin" /> Analyzing...</>
+                ) : (
+                  <><Sparkles className="w-4 h-4" /> Analyze & Review</>
+                )}
+              </button>
+            </form>
           )}
-        </button>
-      </form>
+        </div>
+      ) : (
+        // --- CSV BANK IMPORT WIZARD ---
+        <div className="space-y-4 animate-in fade-in duration-200">
+          {csvError && (
+            <div className="p-3 bg-rose-50 dark:bg-rose-950/30 border border-rose-100 dark:border-rose-900/40 rounded-xl text-rose-700 dark:text-rose-300 text-xs flex items-start gap-2 animate-shake">
+              <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+              <span>{csvError}</span>
+            </div>
+          )}
+
+          {/* STEP 1: DROPZONE UPLOAD */}
+          {importStep === 'upload' && (
+            <div
+              onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
+              onDragLeave={() => setIsDragging(false)}
+              onDrop={handleFileDrop}
+              className={cn(
+                "border-2 border-dashed rounded-2xl p-8 flex flex-col items-center justify-center text-center cursor-pointer transition-all duration-200 min-h-[220px]",
+                isDragging
+                  ? "border-blue-500 bg-blue-50/50 dark:bg-blue-950/20"
+                  : "border-gray-200 dark:border-gray-800 hover:border-blue-400 hover:bg-gray-50/50 dark:hover:bg-gray-850/30"
+              )}
+              onClick={() => document.getElementById('csv-file-input')?.click()}
+            >
+              <input
+                id="csv-file-input"
+                type="file"
+                accept=".csv"
+                className="hidden"
+                onChange={handleFileInputChange}
+              />
+              <div className="p-3 bg-blue-50 dark:bg-blue-900/30 rounded-full mb-3 text-blue-600 dark:text-blue-400">
+                <Upload className="w-8 h-8" />
+              </div>
+              <p className="text-sm font-medium text-gray-800 dark:text-gray-200 mb-1">
+                Drag & Drop bank statements (.csv)
+              </p>
+              <p className="text-xs text-gray-400 dark:text-gray-500 max-w-sm">
+                or click to browse your files. We automatically map dates, amounts, and categorize transactions.
+              </p>
+            </div>
+          )}
+
+          {/* STEP 2: DYNAMIC COLUMN MAPPING */}
+          {importStep === 'mapping' && (
+            <div className="space-y-4">
+              <div className="p-3 bg-gray-50 dark:bg-gray-800/50 rounded-xl">
+                <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 mb-1 flex items-center gap-1">
+                  <FileSpreadsheet className="w-3.5 h-3.5 text-blue-500" />
+                  Loaded: <span className="text-gray-800 dark:text-gray-200">{csvFile?.name}</span> ({csvRows.length} rows detected)
+                </p>
+              </div>
+
+              <div className="space-y-3">
+                <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-200 uppercase tracking-wide text-center">
+                  Map CSV Columns To Tracker Fields
+                </h3>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
+                  <div>
+                    <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
+                      Transaction Date *
+                    </label>
+                    <select
+                      value={columnMapping.date}
+                      onChange={(e) => setColumnMapping({ ...columnMapping, date: e.target.value })}
+                      className="w-full px-3 py-2 text-sm bg-white dark:bg-gray-950 border border-gray-200 dark:border-gray-700 rounded-xl focus:ring-1 focus:ring-blue-500 outline-none text-gray-900 dark:text-gray-50 font-medium"
+                    >
+                      <option value="">Select Column</option>
+                      {csvHeaders.map(h => <option key={h} value={h}>{h}</option>)}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
+                      Description / Payee *
+                    </label>
+                    <select
+                      value={columnMapping.description}
+                      onChange={(e) => setColumnMapping({ ...columnMapping, description: e.target.value })}
+                      className="w-full px-3 py-2 text-sm bg-white dark:bg-gray-950 border border-gray-200 dark:border-gray-700 rounded-xl focus:ring-1 focus:ring-blue-500 outline-none text-gray-900 dark:text-gray-50 font-medium"
+                    >
+                      <option value="">Select Column</option>
+                      {csvHeaders.map(h => <option key={h} value={h}>{h}</option>)}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
+                      Amount Spent (Debit / Value) *
+                    </label>
+                    <select
+                      value={columnMapping.amount}
+                      onChange={(e) => setColumnMapping({ ...columnMapping, amount: e.target.value })}
+                      className="w-full px-3 py-2 text-sm bg-white dark:bg-gray-950 border border-gray-200 dark:border-gray-700 rounded-xl focus:ring-1 focus:ring-blue-500 outline-none text-gray-900 dark:text-gray-50 font-medium"
+                    >
+                      <option value="">Select Column</option>
+                      {csvHeaders.map(h => <option key={h} value={h}>{h}</option>)}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
+                      Category Column (Optional)
+                    </label>
+                    <select
+                      value={columnMapping.category}
+                      onChange={(e) => setColumnMapping({ ...columnMapping, category: e.target.value })}
+                      className="w-full px-3 py-2 text-sm bg-white dark:bg-gray-950 border border-gray-200 dark:border-gray-700 rounded-xl focus:ring-1 focus:ring-blue-500 outline-none text-gray-900 dark:text-gray-50 font-medium"
+                    >
+                      <option value="">Do not map column (Guess automatically)</option>
+                      {csvHeaders.map(h => <option key={h} value={h}>{h}</option>)}
+                    </select>
+                  </div>
+                </div>
+              </div>
+
+              {/* Data Raw Preview block */}
+              <div className="pt-2">
+                <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 mb-1.5 uppercase">
+                  Data Raw Sample Rows (Cross-reference header names)
+                </p>
+                <div className="overflow-x-auto text-[10px] font-mono border border-gray-150 dark:border-gray-800 rounded-lg max-h-[110px] bg-gray-50 dark:bg-gray-950 p-2">
+                  <table className="w-full text-left border-collapse">
+                    <thead>
+                      <tr className="border-b border-gray-200 dark:border-gray-850">
+                        {csvHeaders.map((h, i) => <th key={i} className="pb-1 pr-3 text-gray-500 shrink-0 font-bold">{h}</th>)}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {csvRows.slice(0, 3).map((row, i) => (
+                        <tr key={i} className="border-b last:border-0 border-gray-100 dark:border-gray-900/50">
+                          {row.map((cell, idx) => <td key={idx} className="py-1 pr-3 truncate max-w-[120px] text-gray-700 dark:text-gray-300">{cell}</td>)}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              <div className="flex gap-2.5 pt-2">
+                <button
+                  type="button"
+                  onClick={handleResetCsvImport}
+                  className="flex-1 py-2 bg-gray-100 hover:bg-gray-200 dark:bg-gray-800 dark:hover:bg-gray-700 text-gray-900 dark:text-gray-200 text-sm font-semibold rounded-xl transition-colors"
+                >
+                  Start Over
+                </button>
+                <button
+                  type="button"
+                  onClick={handlePreviewParsedData}
+                  className="flex-[2] py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold rounded-xl transition-all shadow-md flex items-center justify-center gap-1.5"
+                >
+                  <Sparkles className="w-4 h-4" />
+                  Analyze & Preview
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* STEP 3: TRANSACTION EDITABLE PREVIEW SPREADSHEET */}
+          {importStep === 'preview' && (
+            <div className="space-y-4">
+              <div className="flex justify-between items-center bg-gray-50 dark:bg-gray-800/40 p-2.5 rounded-xl">
+                <div>
+                  <h3 className="text-xs font-bold text-gray-800 dark:text-gray-200 flex items-center gap-1 mb-0.5">
+                    <Check className="w-4 h-4 text-emerald-500" />
+                    Correct & Approve Import
+                  </h3>
+                  <p className="text-[11px] text-gray-500 dark:text-gray-400">
+                    Review or manually edit rows below before final submission!
+                  </p>
+                </div>
+                <div className="text-right shrink-0">
+                  <span className="text-xs font-bold text-blue-600 dark:text-blue-400 font-mono">
+                    {parsedExpenses.filter(e => e.selected).length} Selected
+                  </span>
+                  <p className="text-[10px] text-gray-400 font-mono">
+                    Total Spending: ₹{parsedExpenses.filter(e => e.selected).reduce((p, c) => p + c.amount, 0).toFixed(2)}
+                  </p>
+                </div>
+              </div>
+
+              {/* SpreadSheet table list */}
+              <div className="border border-gray-150 dark:border-gray-800 rounded-xl overflow-hidden bg-white dark:bg-gray-950">
+                <div className="max-h-[260px] overflow-y-auto overflow-x-auto text-xs">
+                  <table className="w-full text-left border-collapse table-fixed">
+                    <thead className="bg-gray-50 dark:bg-gray-900 border-b border-gray-200 dark:border-gray-800 text-gray-500 dark:text-gray-400 font-bold sticky top-0 z-10">
+                      <tr>
+                        <th className="p-2 w-[40px] text-center">
+                          <input
+                            type="checkbox"
+                            checked={parsedExpenses.length > 0 && parsedExpenses.every(e => e.selected)}
+                            onChange={(e) => {
+                              const checked = e.target.checked;
+                              setParsedExpenses(prev => prev.map(item => ({ ...item, selected: checked })));
+                            }}
+                            className="rounded accent-blue-500 cursor-pointer"
+                          />
+                        </th>
+                        <th className="p-2 w-[120px]">Date (YYYY-MM-DD)</th>
+                        <th className="p-2 w-[180px]">Description</th>
+                        <th className="p-2 w-[110px]">Category</th>
+                        <th className="p-2 w-[85px] text-right pr-3">Amount (₹)</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100 dark:divide-gray-850">
+                      {parsedExpenses.map((expense, eIdx) => (
+                        <tr
+                          key={expense.id}
+                          className={cn(
+                            "group hover:bg-gray-50/50 dark:hover:bg-gray-900/30 transition-colors",
+                            !expense.selected && "opacity-50 line-through md:no-underline"
+                          )}
+                        >
+                          {/* Selected Checkbox */}
+                          <td className="p-1.5 text-center">
+                            <input
+                              type="checkbox"
+                              checked={expense.selected}
+                              onChange={(e) => {
+                                const checked = e.target.checked;
+                                setParsedExpenses(prev => prev.map((item, idx) => idx === eIdx ? { ...item, selected: checked } : item));
+                              }}
+                              className="rounded accent-blue-500 cursor-pointer"
+                            />
+                          </td>
+                          {/* Date edit */}
+                          <td className="p-1">
+                            <input
+                              type="text"
+                              value={expense.date}
+                              onChange={(e) => {
+                                const val = e.target.value;
+                                setParsedExpenses(prev => prev.map((item, idx) => idx === eIdx ? { ...item, date: val } : item));
+                              }}
+                              className="w-full px-1.5 py-1 text-xs bg-transparent border-0 border-b border-transparent focus:border-blue-500 focus:ring-0 outline-none font-mono text-gray-800 dark:text-gray-100 rounded"
+                            />
+                          </td>
+                          {/* Description edit */}
+                          <td className="p-1">
+                            <input
+                              type="text"
+                              value={expense.description}
+                              onChange={(e) => {
+                                const val = e.target.value;
+                                setParsedExpenses(prev => prev.map((item, idx) => idx === eIdx ? { ...item, description: val } : item));
+                              }}
+                              className="w-full px-1.5 py-1 text-xs bg-transparent border-0 border-b border-transparent focus:border-blue-500 focus:ring-0 outline-none text-gray-800 dark:text-gray-100 rounded truncate"
+                            />
+                          </td>
+                          {/* Category chooser */}
+                          <td className="p-1">
+                            <select
+                              value={expense.category}
+                              onChange={(e) => {
+                                const val = e.target.value;
+                                setParsedExpenses(prev => prev.map((item, idx) => idx === eIdx ? { ...item, category: val } : item));
+                              }}
+                              className="w-full py-0.5 px-0.5 bg-transparent border-0 border-b border-transparent focus:border-blue-500 select-none outline-none text-gray-800 dark:text-gray-200 cursor-pointer rounded"
+                            >
+                              {Object.keys(CATEGORY_COLORS).map(cat => <option key={cat} value={cat}>{cat}</option>)}
+                            </select>
+                          </td>
+                          {/* Amount */}
+                          <td className="p-1.5 text-right font-mono font-medium text-gray-900 dark:text-gray-100 pr-3">
+                            <input
+                              type="number"
+                              step="0.01"
+                              value={expense.amount}
+                              onChange={(e) => {
+                                const val = parseFloat(e.target.value);
+                                setParsedExpenses(prev => prev.map((item, idx) => idx === eIdx ? { ...item, amount: isNaN(val) ? 0 : val } : item));
+                              }}
+                              className="w-full py-0 px-1 text-xs bg-transparent border-0 border-b border-transparent focus:border-blue-500 text-right focus:ring-0 outline-none font-mono text-gray-800 dark:text-gray-100 rounded"
+                            />
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              {/* Bottom buttons */}
+              <div className="flex gap-2.5 pt-1">
+                <button
+                  type="button"
+                  onClick={() => setImportStep('mapping')}
+                  className="flex-1 py-2 bg-gray-150 hover:bg-gray-200 dark:bg-gray-800 dark:hover:bg-gray-700 text-gray-900 dark:text-gray-200 text-sm font-semibold rounded-xl transition-colors"
+                >
+                  Back To Mapping
+                </button>
+                <button
+                  type="button"
+                  onClick={handleBulkImport}
+                  disabled={parsedExpenses.filter(e => e.selected).length === 0}
+                  className="flex-[2] py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-55 text-white text-sm font-semibold rounded-xl transition-all shadow-md flex items-center justify-center gap-1.5"
+                >
+                  <Check className="w-4 h-4" />
+                  Import Selected Expenses ({parsedExpenses.filter(e => e.selected).length})
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* STEP 4: IMPORTING LOADER */}
+          {importStep === 'importing' && (
+            <div className="p-8 flex flex-col items-center justify-center text-center space-y-4 min-h-[220px]">
+              <Loader2 className="w-10 h-10 text-blue-500 animate-spin" />
+              <div>
+                <p className="text-sm font-semibold text-gray-950 dark:text-gray-50">
+                  Bulk Uploading Expenses to Database...
+                </p>
+                <p className="text-xs text-gray-400 mt-1">
+                  Step {importProgress.current} of {importProgress.total} transactions
+                </p>
+              </div>
+              
+              {/* Progress bar container */}
+              <div className="w-full max-w-sm bg-gray-100 dark:bg-gray-850 h-2.5 rounded-full overflow-hidden">
+                <div
+                  className="bg-blue-600 dark:bg-blue-500 h-full transition-all duration-150"
+                  style={{ width: `${(importProgress.current / importProgress.total) * 100}%` }}
+                />
+              </div>
+
+              <div className="flex gap-4 text-xs font-medium font-mono text-gray-400 text-center">
+                <span>Success: <strong className="text-emerald-500">{importProgress.successCount}</strong></span>
+                <span>Failed: <strong className="text-rose-500">{importProgress.failedCount}</strong></span>
+              </div>
+            </div>
+          )}
+
+          {/* STEP 5: SUCCESS REPORT */}
+          {importStep === 'success' && (
+            <div className="p-8 flex flex-col items-center justify-center text-center space-y-4 min-h-[220px] animate-in zoom-in-95 duration-200">
+              <div className="p-3 bg-emerald-50 dark:bg-emerald-950/30 rounded-full text-emerald-500 dark:text-emerald-400 animate-bounce">
+                <Check className="w-10 h-10" />
+              </div>
+              
+              <div>
+                <h3 className="text-lg font-bold text-gray-900 dark:text-gray-50">
+                  Bulk CSV Import Successful!
+                </h3>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-2 max-w-sm">
+                  We successfully parsed and imported <span className="font-bold text-emerald-600 dark:text-emerald-400">{importProgress.successCount}</span> transactions into your expense register.
+                </p>
+                {importProgress.failedCount > 0 && (
+                  <p className="text-xs text-rose-500 mt-1">
+                    Note: {importProgress.failedCount} transactions failed to write.
+                  </p>
+                )}
+              </div>
+
+              <button
+                type="button"
+                onClick={handleResetCsvImport}
+                className="w-full max-w-xs py-2 bg-gray-950 dark:bg-blue-600 hover:bg-gray-850 dark:hover:bg-blue-700 text-white font-medium rounded-xl text-sm transition-all shadow-md mt-2"
+              >
+                Import More Records
+              </button>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
