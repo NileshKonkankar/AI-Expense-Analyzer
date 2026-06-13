@@ -2497,6 +2497,7 @@ function Dashboard({ expenses, incomes = [], recurringExpenses, isDarkMode, budg
   const [selectedDashboardMonth, setSelectedDashboardMonth] = useState(format(new Date(), 'yyyy-MM'));
   const [compareRange, setCompareRange] = useState<number>(6);
   const [compareChartType, setCompareChartType] = useState<'total' | 'categories'>('total');
+  const [selectedTrendCategories, setSelectedTrendCategories] = useState<string[]>(Object.keys(CATEGORY_COLORS));
   
   // Custom interactive options for printable statement report
   const [isPrintModalOpen, setIsPrintModalOpen] = useState(false);
@@ -2770,6 +2771,19 @@ function Dashboard({ expenses, incomes = [], recurringExpenses, isDarkMode, budg
       const monthBudg = budgetGoals.filter(b => b.month === month);
       const totalBudget = monthBudg.reduce((sum, b) => sum + b.amount, 0);
 
+      const categorySpent: Record<string, number> = {};
+      Object.keys(CATEGORY_COLORS).forEach(cat => {
+        categorySpent[cat] = 0;
+      });
+      monthExp.forEach(e => {
+        const cat = e.category || 'Other';
+        if (categorySpent[cat] !== undefined) {
+          categorySpent[cat] = parseFloat((categorySpent[cat] + e.amount).toFixed(2));
+        } else {
+          categorySpent['Other'] = parseFloat((categorySpent['Other'] + e.amount).toFixed(2));
+        }
+      });
+
       const parsedDate = parse(month, 'yyyy-MM', new Date());
       const label = format(parsedDate, 'MMM yy');
 
@@ -2778,6 +2792,7 @@ function Dashboard({ expenses, incomes = [], recurringExpenses, isDarkMode, budg
         label,
         spent: parseFloat(totalSpent.toFixed(2)),
         budget: parseFloat(totalBudget.toFixed(2)),
+        ...categorySpent,
       };
     });
   }, [last6MonthsList, expenses, budgetGoals]);
@@ -3696,6 +3711,110 @@ function Dashboard({ expenses, incomes = [], recurringExpenses, isDarkMode, budg
                 animationDuration={800}
                 animationEasing="ease-out"
               />
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
+      </div>
+
+      {/* 6-Month Category Spending Trends Line Chart Card */}
+      <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-800 p-6 transition-colors duration-200" id="category-trends-chart-card">
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 mb-6">
+          <div className="flex items-center gap-3">
+            <div className="p-2 bg-indigo-50 dark:bg-indigo-950/40 rounded-xl">
+              <PieChartIcon className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />
+            </div>
+            <div>
+              <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-50 uppercase tracking-wider text-[10px] text-indigo-600 dark:text-indigo-400 font-mono">Category Growth Trends</h3>
+              <h2 className="text-base font-bold text-gray-900 dark:text-gray-50 leading-tight">6-Month Category Spending Volatility</h2>
+              <p className="text-xs text-gray-400 mt-1">
+                Trace segmented expenditures across your personalized categories to monitor tracking consistency and monthly peaks.
+              </p>
+            </div>
+          </div>
+
+          {/* Interactive Toggle Pills */}
+          <div className="flex flex-wrap gap-2 text-xs">
+            {Object.keys(CATEGORY_COLORS).map(cat => {
+              const isSelected = selectedTrendCategories.includes(cat);
+              const color = CATEGORY_COLORS[cat];
+              return (
+                <button
+                  key={cat}
+                  type="button"
+                  id={`toggle-trend-${cat.toLowerCase()}`}
+                  onClick={() => {
+                    if (isSelected) {
+                      if (selectedTrendCategories.length > 1) {
+                        setSelectedTrendCategories(selectedTrendCategories.filter(c => c !== cat));
+                      }
+                    } else {
+                      setSelectedTrendCategories([...selectedTrendCategories, cat]);
+                    }
+                  }}
+                  className={cn(
+                    "px-3 py-1.5 rounded-full font-semibold transition-all border outline-none flex items-center gap-1.5 cursor-pointer",
+                    isSelected 
+                      ? "text-white" 
+                      : "bg-gray-50 dark:bg-gray-800 text-gray-500 border-gray-150 dark:border-gray-750 hover:text-gray-700 dark:hover:text-gray-300"
+                  )}
+                  style={isSelected ? {
+                    backgroundColor: color,
+                    borderColor: color,
+                    boxShadow: `0 2px 6px ${color}33`,
+                  } : {}}
+                >
+                  <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: isSelected ? '#ffffff' : color }} />
+                  {cat}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* The line chart visualization */}
+        <div className="h-72 w-full mb-3">
+          <ResponsiveContainer width="100%" height="100%">
+            <LineChart data={last6MonthsData} margin={{ top: 10, right: 10, left: -15, bottom: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={isDarkMode ? '#374151' : '#E5E7EB'} />
+              <XAxis 
+                dataKey="label" 
+                axisLine={false} 
+                tickLine={false} 
+                tick={{ fontSize: 11, fill: isDarkMode ? '#9CA3AF' : '#6B7280' }} 
+              />
+              <YAxis 
+                axisLine={false} 
+                tickLine={false} 
+                tick={{ fontSize: 11, fill: isDarkMode ? '#9CA3AF' : '#6B7280' }} 
+                tickFormatter={(val) => `₹${val.toLocaleString()}`} 
+              />
+              <RechartsTooltip 
+                formatter={(value: number, name: string) => [`₹${value.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`, name]}
+                contentStyle={tooltipStyle}
+                itemStyle={{ color: isDarkMode ? '#F9FAFB' : '#111827' }}
+              />
+              <Legend 
+                verticalAlign="top" 
+                height={36} 
+                iconType="circle"
+                iconSize={8}
+                wrapperStyle={{ fontSize: 11, color: isDarkMode ? '#F9FAFB' : '#111827' }} 
+              />
+              {selectedTrendCategories.map(cat => (
+                <Line 
+                  key={cat}
+                  type="monotone" 
+                  dataKey={cat} 
+                  name={cat} 
+                  stroke={CATEGORY_COLORS[cat]} 
+                  strokeWidth={2.5} 
+                  dot={{ r: 3.5, strokeWidth: 1 }} 
+                  activeDot={{ r: 6, strokeWidth: 0 }}
+                  isAnimationActive={true}
+                  animationDuration={850}
+                  animationEasing="ease-out"
+                />
+              ))}
             </LineChart>
           </ResponsiveContainer>
         </div>
