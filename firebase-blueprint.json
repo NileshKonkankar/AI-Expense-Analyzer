@@ -168,6 +168,61 @@
         }
       },
       "required": ["userId", "title", "targetAmount", "createdAt"]
+    },
+    "UserSetting": {
+      "title": "User Setting",
+      "description": "Preferences for notifications and alerts",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "emailEnabled": { "type": "boolean" },
+        "pushEnabled": { "type": "boolean" },
+        "email": { "type": "string" },
+        "updatedAt": { "type": "timestamp" }
+      },
+      "required": ["userId", "emailEnabled", "pushEnabled", "email", "updatedAt"]
+    },
+    "BudgetAlert": {
+      "title": "Budget Alert",
+      "description": "Logs of triggered budget thresholds to avoid double alerts",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "category": { "type": "string" },
+        "month": { "type": "string" },
+        "threshold": { "type": "number" },
+        "triggeredAt": { "type": "timestamp" },
+        "amount": { "type": "number" },
+        "limit": { "type": "number" },
+        "sentEmail": { "type": "boolean" },
+        "sentPush": { "type": "boolean" }
+      },
+      "required": ["userId", "category", "month", "threshold", "triggeredAt", "amount", "limit", "sentEmail", "sentPush"]
+    },
+    "FCMToken": {
+      "title": "FCM Token",
+      "description": "Firebase Cloud Messaging token for web push notification routing",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "token": { "type": "string" },
+        "createdAt": { "type": "timestamp" }
+      },
+      "required": ["userId", "token", "createdAt"]
+    },
+    "NotificationLog": {
+      "title": "Notification Log",
+      "description": "Logs of email and push notifications dispatched for user audits",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "title": { "type": "string" },
+        "body": { "type": "string" },
+        "type": { "type": "string" },
+        "status": { "type": "string" },
+        "createdAt": { "type": "timestamp" }
+      },
+      "required": ["userId", "title", "body", "type", "status", "createdAt"]
     }
   },
   "firestore": {
@@ -206,6 +261,30 @@
         "$ref": "#/entities/SavingsGoal"
       },
       "description": "Savings goals set by users"
+    },
+    "/userSettings/{settingId}": {
+      "schema": {
+        "$ref": "#/entities/UserSetting"
+      },
+      "description": "Preferences for notifications and alerts"
+    },
+    "/budgetAlerts/{alertId}": {
+      "schema": {
+        "$ref": "#/entities/BudgetAlert"
+      },
+      "description": "A record of triggered budget threshold alerts"
+    },
+    "/fcmTokens/{tokenId}": {
+      "schema": {
+        "$ref": "#/entities/FCMToken"
+      },
+      "description": "Stores user routing tokens for FCM"
+    },
+    "/notificationLogs/{logId}": {
+      "schema": {
+        "$ref": "#/entities/NotificationLog"
+      },
+      "description": "Audit records of sent system disclosures"
     }
   }
 }

@@ -90,6 +90,45 @@ service cloud.firestore {
              data.targetAmount is number && data.targetAmount > 0 &&
              data.createdAt is timestamp;
     }
+
+    function isValidUserSetting(data) {
+      return hasOnlyAllowedFields(['userId', 'emailEnabled', 'pushEnabled', 'email', 'updatedAt']) &&
+             data.userId is string && data.userId == request.auth.uid &&
+             data.emailEnabled is bool &&
+             data.pushEnabled is bool &&
+             data.email is string && data.email.size() <= 200 &&
+             data.updatedAt is timestamp;
+    }
+
+    function isValidBudgetAlert(data) {
+      return hasOnlyAllowedFields(['userId', 'category', 'month', 'threshold', 'triggeredAt', 'amount', 'limit', 'sentEmail', 'sentPush']) &&
+             data.userId is string && data.userId == request.auth.uid &&
+             data.category is string && data.category.size() <= 50 &&
+             data.month is string && data.month.matches("^\\d{4}-\\d{2}$") &&
+             data.threshold is number &&
+             data.triggeredAt is timestamp &&
+             data.amount is number &&
+             data.limit is number &&
+             data.sentEmail is bool &&
+             data.sentPush is bool;
+    }
+
+    function isValidFCMToken(data) {
+      return hasOnlyAllowedFields(['userId', 'token', 'createdAt']) &&
+             data.userId is string && data.userId == request.auth.uid &&
+             data.token is string && data.token.size() <= 300 &&
+             data.createdAt is timestamp;
+    }
+
+    function isValidNotificationLog(data) {
+      return hasOnlyAllowedFields(['userId', 'title', 'body', 'type', 'status', 'createdAt']) &&
+             data.userId is string && data.userId == request.auth.uid &&
+             data.title is string && data.title.size() <= 200 &&
+             data.body is string && data.body.size() <= 2000 &&
+             data.type is string && data.type in ['email', 'push', 'both'] &&
+             data.status is string && data.status in ['sent', 'failed', 'simulated'] &&
+             data.createdAt is timestamp;
+    }
     
     function areImmutableFieldsUnchanged(fields) {
       return !request.resource.data.diff(resource.data).affectedKeys().hasAny(fields);
@@ -160,6 +199,32 @@ service cloud.firestore {
                     resource.data.userId == request.auth.uid && 
                     isValidSavingsGoal(request.resource.data) &&
                     areImmutableFieldsUnchanged(['userId', 'createdAt']);
+      allow delete: if isAuthenticated() && resource.data.userId == request.auth.uid;
+    }
+
+    match /userSettings/{settingId} {
+      allow read: if isAuthenticated() && resource.data.userId == request.auth.uid;
+      allow create, update: if isAuthenticated() && isValidUserSetting(request.resource.data);
+      allow delete: if isAuthenticated() && resource.data.userId == request.auth.uid;
+    }
+
+    match /budgetAlerts/{alertId} {
+      allow read: if isAuthenticated() && resource.data.userId == request.auth.uid;
+      allow create: if isAuthenticated() && isValidBudgetAlert(request.resource.data);
+      allow update: if isAuthenticated() && resource.data.userId == request.auth.uid && isValidBudgetAlert(request.resource.data) && areImmutableFieldsUnchanged(['userId', 'triggeredAt']);
+      allow delete: if isAuthenticated() && resource.data.userId == request.auth.uid;
+    }
+
+    match /fcmTokens/{tokenId} {
+      allow read: if isAuthenticated() && resource.data.userId == request.auth.uid;
+      allow create, update: if isAuthenticated() && isValidFCMToken(request.resource.data);
+      allow delete: if isAuthenticated() && resource.data.userId == request.auth.uid;
+    }
+
+    match /notificationLogs/{logId} {
+      allow read: if isAuthenticated() && resource.data.userId == request.auth.uid;
+      allow create: if isAuthenticated() && isValidNotificationLog(request.resource.data);
+      allow update: if false; // immutable audits
       allow delete: if isAuthenticated() && resource.data.userId == request.auth.uid;
     }
   }
