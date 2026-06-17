@@ -615,7 +615,7 @@ export default function App() {
                   onBudgetExceeded={handleBudgetExceeded}
                 />
                 <ExpenseList expenses={expenses} />
-                <CategoryRulesList categoryRules={categoryRules} userId={user.uid} />
+                <CategoryRulesList categoryRules={categoryRules} userId={user.uid} expenses={expenses} />
                 <RecurringExpenseList recurringExpenses={recurringExpenses} />
               </div>
             ) : (
@@ -2318,12 +2318,129 @@ function IncomeList({ incomes }: { incomes: Income[] }) {
   );
 }
 
-function CategoryRulesList({ categoryRules, userId }: { categoryRules: CategoryRule[], userId: string }) {
+function CategoryRulesList({ categoryRules, userId, expenses }: { categoryRules: CategoryRule[], userId: string, expenses: Expense[] }) {
   const [showAddForm, setShowAddForm] = useState(false);
   const [keyword, setKeyword] = useState('');
   const [category, setCategory] = useState('Food');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [ruleToDelete, setRuleToDelete] = useState<string | null>(null);
+
+  // Keep track of customized categories for suggestions before saving
+  const [customizedCategories, setCustomizedCategories] = useState<Record<string, string>>({});
+
+  // Parse expenses & generate recommended rule keywords
+  const recommendations = React.useMemo(() => {
+    if (!expenses || expenses.length === 0) return [];
+
+    // Exclude keywords already mapped by categoryRules
+    const ruleKeywords = categoryRules.map(r => r.keyword.toLowerCase().trim()).filter(Boolean);
+
+    // Filter for expenses that don't match any of the existing rule keywords
+    const uncategorizedExpenses = expenses.filter(exp => {
+      const descLower = exp.description.toLowerCase().trim();
+      const matchesAnyRule = ruleKeywords.some(keyword => descLower.includes(keyword));
+      return !matchesAnyRule;
+    });
+
+    const frequencyCounter: Record<string, { term: string; count: number; totalSpent: number; categories: Record<string, number> }> = {};
+
+    uncategorizedExpenses.forEach(exp => {
+      // Basic cleaning to extract the core merchant/description term
+      let cleaned = exp.description
+        .replace(/\d+/g, '') // remove digits/years/transaction numbers
+         // keep alphanumeric and spaces
+        .replace(/[^\w\s-]/g, '')
+        .replace(/\s+/g, ' ')
+        .trim();
+
+      if (cleaned.length < 3) return;
+
+      // Extract candidate root phrase
+      const words = cleaned.split(' ');
+      let candidate = words[0];
+
+      // If the first word is short or generic, include the next word to make a meaningful merchant search
+      if (words.length > 1 && (words[0].length <= 3 || ['the', 'new', 'for', 'pay', 'vwr', 'all', 'any', 'old', 'our', 'top'].includes(words[0].toLowerCase()))) {
+        candidate = `${words[0]} ${words[1]}`;
+      }
+
+      // Title Case capitalizing
+      candidate = candidate.trim().split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ');
+
+      const stopWordsList = ['the', 'and', 'for', 'with', 'payment', 'bill', 'cash', 'txn', 'online', 'transfer', 'spent', 'cost', 'fees', 'fee', 'card', 'bank', 'account'];
+      if (stopWordsList.includes(candidate.toLowerCase()) || candidate.length < 3) {
+        if (words.length > 1) {
+          candidate = words.slice(0, 2).map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ');
+        } else {
+          return;
+        }
+      }
+
+      if (!frequencyCounter[candidate]) {
+        frequencyCounter[candidate] = {
+          term: candidate,
+          count: 0,
+          totalSpent: 0,
+          categories: {}
+        };
+      }
+
+      const item = frequencyCounter[candidate];
+      item.count += 1;
+      item.totalSpent += exp.amount;
+
+      if (exp.category && exp.category !== 'Other') {
+        item.categories[exp.category] = (item.categories[exp.category] || 0) + 1;
+      }
+    });
+
+    // We only recommend if a specific description/keyword appears at least twice (frequent!)
+    return Object.values(frequencyCounter)
+      .filter(item => item.count >= 2)
+      .map(item => {
+        let recommendedCategory = 'Food'; // default fallback
+        let maxCatCount = 0;
+
+        // If user already categorized some matching entries manually, pick their highest usage
+        Object.entries(item.categories).forEach(([cat, catCount]) => {
+          if (catCount > maxCatCount) {
+            maxCatCount = catCount;
+            recommendedCategory = cat;
+          }
+        });
+
+        // If no user historical distribution, run smart regex taxonomy matching
+        if (maxCatCount === 0) {
+          const lowerTerm = item.term.toLowerCase();
+          if (/uber|grab|ola|lyft|cab|taxi|flight|train|metro|bus|airline|travel|fuel|petrol|gas|filling|station/i.test(lowerTerm)) {
+            recommendedCategory = 'Travel';
+          } else if (/starbucks|cafe|coffee|zomato|swiggy|restaurant|mcdonald|food|burger|pizza|dine|bakery|lunch|dinner|breakfast|eats/i.test(lowerTerm)) {
+            recommendedCategory = 'Food';
+          } else if (/electric|water|power|gas|phone|mobile|recharge|wifi|internet|broadband|telecom|airtel|jio|act|netflix|spotify|prime|sub|apple/i.test(lowerTerm)) {
+            recommendedCategory = 'Utilities';
+          } else if (/movie|cinema|theatre|game|ps5|xbox|steam|play|ticket|concert|bar|pub|club|brewery|beer|wine|liquor/i.test(lowerTerm)) {
+            recommendedCategory = 'Entertainment';
+          } else if (/amazon|flipkart|walmart|store|mall|shop|clothes|apparel|shoe|nike|adidas|grocery|supermarket|mart|groceries/i.test(lowerTerm)) {
+            recommendedCategory = 'Shopping';
+          } else if (/doctor|medical|hospital|pharmacy|medicine|pill|clinic|health|gym|fitness|yoga|supplement/i.test(lowerTerm)) {
+            recommendedCategory = 'Health';
+          } else if (/rent|lease|apartment|landlord|maintenance|society|housing/i.test(lowerTerm)) {
+            recommendedCategory = 'Rent';
+          } else {
+            recommendedCategory = 'Other';
+          }
+        }
+
+        return {
+          keyword: item.term,
+          recommendedCategory,
+          frequency: item.count,
+          totalSpent: item.totalSpent
+        };
+      })
+      .sort((a, b) => b.frequency - a.frequency)
+      .slice(0, 4); // show top 4 suggestions
+  }, [expenses, categoryRules]);
 
   const handleAddRule = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -2345,6 +2462,22 @@ function CategoryRulesList({ categoryRules, userId }: { categoryRules: CategoryR
     }
   };
 
+  const handleAddSuggestedRule = async (term: string, finalCategory: string) => {
+    setIsSubmitting(true);
+    try {
+      await addDoc(collection(db, 'categoryRules'), {
+        userId,
+        keyword: term,
+        category: finalCategory,
+        createdAt: serverTimestamp()
+      });
+    } catch (error) {
+      console.error("Error adding suggested rule:", error);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
   const confirmDeleteRule = async () => {
     if (!ruleToDelete) return;
     try {
@@ -2358,83 +2491,169 @@ function CategoryRulesList({ categoryRules, userId }: { categoryRules: CategoryR
 
   return (
     <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-800 p-6 transition-colors duration-200">
-      <div className="flex items-center justify-between mb-4">
-        <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-50 flex items-center gap-2">
-          <Filter className="w-5 h-5 text-purple-600 dark:text-purple-500" />
-          Categorization Rules
-        </h2>
-        <button 
-          onClick={() => setShowAddForm(!showAddForm)}
-          className="p-1.5 text-gray-500 hover:text-purple-600 hover:bg-purple-50 dark:hover:bg-purple-900/20 rounded-lg transition-colors"
-          title="Add custom rule"
-        >
-          {showAddForm ? <X className="w-5 h-5" /> : <Plus className="w-5 h-5" />}
-        </button>
-      </div>
-
-      {showAddForm && (
-        <form onSubmit={handleAddRule} className="mb-6 p-4 bg-purple-50/50 dark:bg-purple-950/20 rounded-xl space-y-3 animate-in fade-in slide-in-from-top-2">
-          <div>
-            <label className="block text-xs font-medium text-purple-700 dark:text-purple-300 mb-1 uppercase tracking-wider">If description contains:</label>
-            <input
-              type="text"
-              value={keyword}
-              onChange={(e) => setKeyword(e.target.value)}
-              placeholder="e.g., Starbucks, Amazon"
-              className="w-full px-3 py-1.5 text-sm bg-white dark:bg-gray-950 border border-purple-100 dark:border-purple-900/50 rounded-lg focus:ring-1 focus:ring-purple-500 outline-none text-gray-900 dark:text-gray-50"
-              required
-            />
-          </div>
-          <div>
-            <label className="block text-xs font-medium text-purple-700 dark:text-purple-300 mb-1 uppercase tracking-wider">Categorize as:</label>
-            <select
-              value={category}
-              onChange={(e) => setCategory(e.target.value)}
-              className="w-full px-3 py-1.5 text-sm bg-white dark:bg-gray-950 border border-purple-100 dark:border-purple-900/50 rounded-lg focus:ring-1 focus:ring-purple-500 outline-none text-gray-900 dark:text-gray-50"
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+        
+        {/* Left column: Custom Rules List */}
+        <div className="space-y-4 pb-6 lg:pb-0 lg:pr-8 lg:border-r border-gray-100 dark:border-gray-800">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-50 flex items-center gap-2">
+              <Filter className="w-5 h-5 text-purple-600 dark:text-purple-500" />
+              Categorization Rules
+            </h2>
+            <button 
+              onClick={() => setShowAddForm(!showAddForm)}
+              className="p-1.5 text-gray-500 hover:text-purple-600 hover:bg-purple-50 dark:hover:bg-purple-900/20 rounded-lg transition-colors"
+              title="Add custom rule"
             >
-              {Object.keys(CATEGORY_COLORS).map(cat => (
-                <option key={cat} value={cat}>{cat}</option>
-              ))}
-            </select>
+              {showAddForm ? <X className="w-5 h-5" /> : <Plus className="w-5 h-5" />}
+            </button>
           </div>
-          <button
-            type="submit"
-            disabled={isSubmitting}
-            className="w-full py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg text-xs font-bold transition-all shadow-sm"
-          >
-            {isSubmitting ? 'Saving...' : 'Add AI Rule'}
-          </button>
-        </form>
-      )}
 
-      {categoryRules.length === 0 ? (
-        <div className="text-center py-6 bg-gray-50 dark:bg-gray-800/30 rounded-xl border border-dashed border-gray-200 dark:border-gray-700">
-          <p className="text-xs text-gray-500 dark:text-gray-400">No custom rules yet. Train the AI or add one above!</p>
-        </div>
-      ) : (
-        <div className="space-y-3 max-h-[200px] overflow-y-auto pr-2">
-          {categoryRules.map((rule) => (
-            <div key={rule.id} className="flex items-center justify-between p-2.5 bg-gray-50/50 dark:bg-gray-800/30 hover:bg-white dark:hover:bg-gray-800 rounded-xl border border-transparent hover:border-gray-100 dark:hover:border-gray-700 transition-all group">
-              <div className="flex items-center gap-3">
-                <div className="px-2 py-1 bg-purple-100 dark:bg-purple-900/40 text-purple-700 dark:text-purple-300 rounded text-[10px] font-bold uppercase tracking-tight">
-                  IF: "{rule.keyword}"
-                </div>
-                <div className="flex items-center gap-1.5">
-                  <div className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: CATEGORY_COLORS[rule.category] || '#6B7280' }} />
-                  <span className="text-sm font-medium text-gray-900 dark:text-gray-100">{rule.category}</span>
-                </div>
+          {showAddForm && (
+            <form onSubmit={handleAddRule} className="mb-6 p-4 bg-purple-50/50 dark:bg-purple-950/20 rounded-xl space-y-3 animate-in fade-in slide-in-from-top-2">
+              <div>
+                <label className="block text-xs font-medium text-purple-700 dark:text-purple-300 mb-1 uppercase tracking-wider">If description contains:</label>
+                <input
+                  type="text"
+                  value={keyword}
+                  onChange={(e) => setKeyword(e.target.value)}
+                  placeholder="e.g., Starbucks, Amazon"
+                  className="w-full px-3 py-1.5 text-sm bg-white dark:bg-gray-950 border border-purple-100 dark:border-purple-900/50 rounded-lg focus:ring-1 focus:ring-purple-500 outline-none text-gray-900 dark:text-gray-50"
+                  required
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-purple-700 dark:text-purple-300 mb-1 uppercase tracking-wider">Categorize as:</label>
+                <select
+                  value={category}
+                  onChange={(e) => setCategory(e.target.value)}
+                  className="w-full px-3 py-1.5 text-sm bg-white dark:bg-gray-950 border border-purple-100 dark:border-purple-900/50 rounded-lg focus:ring-1 focus:ring-purple-500 outline-none text-gray-900 dark:text-gray-50"
+                >
+                  {Object.keys(CATEGORY_COLORS).map(cat => (
+                    <option key={cat} value={cat}>{cat}</option>
+                  ))}
+                </select>
               </div>
               <button
-                onClick={() => setRuleToDelete(rule.id)}
-                className="p-1.5 text-gray-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all"
-                title="Remove rule"
+                type="submit"
+                disabled={isSubmitting}
+                className="w-full py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg text-xs font-bold transition-all shadow-sm"
               >
-                <Trash2 className="w-3.5 h-3.5" />
+                {isSubmitting ? 'Saving...' : 'Add AI Rule'}
               </button>
+            </form>
+          )}
+
+          {categoryRules.length === 0 ? (
+            <div className="text-center py-6 bg-gray-50 dark:bg-gray-800/30 rounded-xl border border-dashed border-gray-200 dark:border-gray-700">
+              <p className="text-xs text-gray-505 dark:text-gray-400">No custom rules yet. Train the AI or add one above!</p>
             </div>
-          ))}
+          ) : (
+            <div className="space-y-3 max-h-[220px] overflow-y-auto pr-2">
+              {categoryRules.map((rule) => {
+                const color = CATEGORY_COLORS[rule.category] || '#6B7280';
+                return (
+                  <div key={rule.id} className="flex items-center justify-between p-2.5 bg-gray-50/50 dark:bg-gray-800/30 hover:bg-white dark:hover:bg-gray-800 rounded-xl border border-transparent hover:border-gray-100 dark:hover:border-gray-700 transition-all group">
+                    <div className="flex items-center gap-3">
+                      <div className="px-2 py-1 bg-purple-100 dark:bg-purple-900/40 text-purple-700 dark:text-purple-300 rounded text-[10px] font-bold uppercase tracking-tight">
+                        IF: "{rule.keyword}"
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <div className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: color }} />
+                        <span className="text-sm font-medium text-gray-900 dark:text-gray-100">{rule.category}</span>
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => setRuleToDelete(rule.id)}
+                      className="p-1.5 text-gray-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all"
+                      title="Remove rule"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
-      )}
+
+        {/* Right column: Smart Rule Suggestions based on Uncategorized Descriptions */}
+        <div className="space-y-4 pt-6 lg:pt-0">
+          <div className="flex items-center justify-between">
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-50 flex items-center gap-2">
+              <Sparkles className="w-5 h-5 text-amber-500 dark:text-amber-450 animate-pulse" />
+              Smart Rule Suggestions
+            </h3>
+            <span className="px-2 py-0.5 bg-amber-50 dark:bg-amber-950/30 text-amber-600 dark:text-amber-400 text-[9px] font-black uppercase tracking-wider rounded-full">
+              Automated Analysis
+            </span>
+          </div>
+
+          <p className="text-xs text-gray-500 dark:text-gray-400 leading-relaxed font-sans">
+            We analyzed your frequent, uncategorized transaction descriptions. Add these matching filters to map them in future runs!
+          </p>
+
+          {recommendations.length === 0 ? (
+            <div className="flex flex-col items-center justify-center p-8 bg-gray-50/40 dark:bg-gray-800/10 rounded-2xl border border-dashed border-gray-100 dark:border-gray-800 text-center animate-in fade-in">
+              <div className="p-2 bg-emerald-50 dark:bg-emerald-950/30 text-emerald-500 dark:text-emerald-400 rounded-full mb-2">
+                <Check className="w-5 h-5" />
+              </div>
+              <p className="text-xs font-bold text-gray-800 dark:text-gray-200">High-Accuracy Achieved!</p>
+              <p className="text-[10px] text-gray-400 dark:text-gray-500 mt-1 max-w-[220px] mx-auto">
+                All recurring payment patterns are categorized by your auto-filters. You're fully optimized!
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-3 max-h-[220px] overflow-y-auto pr-2">
+              {recommendations.map((rec) => {
+                const finalCategory = customizedCategories[rec.keyword] || rec.recommendedCategory;
+                const totalSpentStr = rec.totalSpent.toLocaleString('en-IN', { maximumFractionDigits: 0 });
+                return (
+                  <div 
+                    key={rec.keyword} 
+                    className="p-3 bg-purple-50/10 dark:bg-purple-950/5 hover:bg-purple-50/20 dark:hover:bg-purple-950/10 rounded-xl border border-purple-100/10 dark:border-purple-950/20 space-y-2.5 transition-all"
+                  >
+                    <div className="flex justify-between items-start gap-2">
+                      <div>
+                        <span className="font-extrabold text-sm text-gray-905 dark:text-gray-100 block">"{rec.keyword}"</span>
+                        <div className="flex gap-2 items-center text-[10px] text-gray-400 dark:text-gray-500 mt-0.5">
+                          <span>Occurs <strong className="text-gray-700 dark:text-gray-300 font-bold">{rec.frequency}x</strong></span>
+                          <span className="w-1 h-1 bg-gray-300 dark:bg-gray-600 rounded-full" />
+                          <span>Total Spent: <strong className="text-gray-700 dark:text-gray-300 font-bold">₹{totalSpentStr}</strong></span>
+                        </div>
+                      </div>
+                      
+                      <button
+                        onClick={() => handleAddSuggestedRule(rec.keyword, finalCategory)}
+                        className="py-1 px-2.5 bg-purple-600 hover:bg-purple-750 text-white rounded-lg text-xs font-bold transition-all shadow-sm flex items-center gap-1 shrink-0"
+                        title="Approve suggestion"
+                      >
+                        <Plus className="w-3.5 h-3.5" />
+                        <span>Create</span>
+                      </button>
+                    </div>
+                    
+                    <div className="flex items-center gap-2 pt-1.5 border-t border-purple-100/5 dark:border-purple-950/10 justify-between">
+                      <span className="text-[10px] font-semibold text-gray-400 dark:text-gray-500">Suggested Category:</span>
+                      <select
+                        value={finalCategory}
+                        onChange={(e) => handleCatChange(rec.keyword, e.target.value)}
+                        className="text-[11px] font-bold bg-white dark:bg-gray-950 border border-gray-250 dark:border-gray-800 roundedpx-1.5 py-0.5 outline-none text-gray-820 dark:text-gray-200 cursor-pointer focus:border-purple-500"
+                        style={{ borderLeft: `3px solid ${CATEGORY_COLORS[finalCategory] || '#4B5563'}` }}
+                      >
+                        {Object.keys(CATEGORY_COLORS).map(cat => (
+                          <option key={cat} value={cat}>{cat}</option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+      </div>
 
       {ruleToDelete && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-in fade-in duration-200">
@@ -2464,6 +2683,13 @@ function CategoryRulesList({ categoryRules, userId }: { categoryRules: CategoryR
       )}
     </div>
   );
+
+  function handleCatChange(keyword: string, val: string) {
+    setCustomizedCategories(prev => ({
+      ...prev,
+      [keyword]: val
+    }));
+  }
 }
 
 function RecurringExpenseList({ recurringExpenses }: { recurringExpenses: RecurringExpense[] }) {
