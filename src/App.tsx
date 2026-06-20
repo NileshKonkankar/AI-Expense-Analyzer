@@ -3876,11 +3876,16 @@ function Dashboard({ expenses, incomes = [], recurringExpenses, isDarkMode, budg
       {/* Charts Row */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-800 p-6 transition-colors duration-200">
-          <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-50 mb-4 flex items-center gap-2">
-            <PieChartIcon className="w-4 h-4 text-gray-500 dark:text-gray-400" />
-            Spending by Category
-          </h3>
-          <div className="h-64 relative overflow-hidden">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-50 flex items-center gap-2">
+              <PieChartIcon className="w-4 h-4 text-purple-600 dark:text-purple-400" />
+              Spending by Category
+            </h3>
+            <span className="text-[10px] bg-purple-50 dark:bg-purple-950/30 text-purple-600 dark:text-purple-400 font-extrabold px-2 py-0.5 rounded-full uppercase tracking-wider">
+              {format(parse(selectedDashboardMonth, 'yyyy-MM', new Date()), 'MMMM yyyy')}
+            </span>
+          </div>
+          <div className="h-64 relative">
             <AnimatePresence mode="wait">
               <motion.div
                 key={selectedDashboardMonth}
@@ -3890,37 +3895,113 @@ function Dashboard({ expenses, incomes = [], recurringExpenses, isDarkMode, budg
                 transition={{ duration: 0.3, ease: [0.4, 0, 0.2, 1] }}
                 className="w-full h-full"
               >
-                {pieData.length > 0 ? (
-                  <ResponsiveContainer width="100%" height="100%">
-                    <PieChart>
-                      <Pie
-                        data={pieData}
-                        cx="50%"
-                        cy="50%"
-                        innerRadius={60}
-                        outerRadius={80}
-                        paddingAngle={5}
-                        dataKey="value"
-                        stroke={isDarkMode ? '#111827' : '#FFFFFF'}
-                        strokeWidth={2}
-                        isAnimationActive={true}
-                        animationDuration={600}
-                        animationEasing="ease-out"
-                      >
-                        {pieData.map((entry, index) => (
-                          <Cell key={`cell-${index}`} fill={CATEGORY_COLORS[entry.name] || CATEGORY_COLORS.Other} />
-                        ))}
-                      </Pie>
-                      <RechartsTooltip 
-                        formatter={(value: number) => `₹${value.toFixed(2)}`}
-                        contentStyle={tooltipStyle}
-                        itemStyle={{ color: isDarkMode ? '#F9FAFB' : '#111827' }}
-                      />
-                    </PieChart>
-                  </ResponsiveContainer>
-                ) : (
-                  <div className="h-full flex items-center justify-center text-gray-400 dark:text-gray-500 text-sm">No data to display</div>
-                )}
+                <div className="flex flex-col sm:flex-row h-full w-full items-center justify-between gap-4">
+                  {/* Donut Chart with Center Metric */}
+                  <div className="relative w-full sm:w-1/2 h-full flex items-center justify-center">
+                    {pieData.length > 0 ? (
+                      <>
+                        <ResponsiveContainer width="100%" height="100%">
+                          <PieChart>
+                            <Pie
+                              data={pieData}
+                              cx="50%"
+                              cy="50%"
+                              innerRadius={60}
+                              outerRadius={80}
+                              paddingAngle={4}
+                              dataKey="value"
+                              stroke={isDarkMode ? '#111827' : '#FFFFFF'}
+                              strokeWidth={2}
+                              isAnimationActive={true}
+                              animationDuration={600}
+                              animationEasing="ease-out"
+                            >
+                              {pieData.map((entry, index) => (
+                                <Cell key={`cell-${index}`} fill={CATEGORY_COLORS[entry.name] || CATEGORY_COLORS.Other} />
+                              ))}
+                            </Pie>
+                            <RechartsTooltip 
+                              formatter={(value: number) => `₹${value.toFixed(2)}`}
+                              contentStyle={tooltipStyle}
+                              itemStyle={{ color: isDarkMode ? '#F9FAFB' : '#111827' }}
+                            />
+                          </PieChart>
+                        </ResponsiveContainer>
+                        
+                        {/* Live Counter in Center */}
+                        <div className="absolute flex flex-col items-center justify-center text-center pointer-events-none">
+                          <span className="text-[10px] font-black tracking-widest text-gray-400 dark:text-gray-500 uppercase">
+                            Total Spent
+                          </span>
+                          <span className="text-lg font-extrabold text-gray-905 dark:text-gray-50 mt-0.5">
+                            ₹{totalMonthSpent.toLocaleString('en-IN', { maximumFractionDigits: 0 })}
+                          </span>
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        {/* Interactive Blank Ring Placeholder */}
+                        <ResponsiveContainer width="100%" height="100%">
+                          <PieChart>
+                            <Pie
+                              data={[{ name: 'Empty', value: 1 }]}
+                              cx="50%"
+                              cy="50%"
+                              innerRadius={60}
+                              outerRadius={80}
+                              dataKey="value"
+                              stroke={isDarkMode ? '#111827' : '#FFFFFF'}
+                              strokeWidth={2}
+                              isAnimationActive={false}
+                            >
+                              <Cell fill={isDarkMode ? '#374151' : '#F3F4F6'} />
+                            </Pie>
+                          </PieChart>
+                        </ResponsiveContainer>
+                        
+                        {/* Zero Display in center */}
+                        <div className="absolute flex flex-col items-center justify-center text-center pointer-events-none">
+                          <span className="text-[10px] font-black tracking-widest text-gray-400 dark:text-gray-500 uppercase">
+                            Total Spent
+                          </span>
+                          <span className="text-xl font-extrabold text-gray-400 dark:text-gray-500 mt-0.5">
+                            ₹0
+                          </span>
+                        </div>
+                      </>
+                    )}
+                  </div>
+
+                  {/* Right Column Legend */}
+                  {pieData.length > 0 ? (
+                    <div className="w-full sm:w-1/2 flex flex-col justify-center space-y-2 max-h-full overflow-y-auto pr-1 customize-scrollbar">
+                      {pieData.map((entry) => {
+                        const pct = (entry.value / totalMonthSpent) * 100;
+                        const pctString = `${pct.toFixed(0)}%`;
+                        const color = CATEGORY_COLORS[entry.name] || '#6B7280';
+                        return (
+                          <div key={entry.name} className="flex items-center justify-between text-xs py-1 px-1.5 hover:bg-gray-50 dark:hover:bg-gray-800/40 rounded-lg transition-colors group">
+                            <div className="flex items-center gap-1.5 min-w-0">
+                              <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: color }} />
+                              <span className="font-semibold text-gray-700 dark:text-gray-300 truncate tracking-tight">{entry.name}</span>
+                            </div>
+                            <div className="flex items-center gap-1.5 shrink-0">
+                              <span className="text-gray-900 dark:text-gray-100 font-extrabold">₹{entry.value.toLocaleString('en-IN', { maximumFractionDigits: 0 })}</span>
+                              <span className="px-1.5 py-0.5 bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 text-[9px] font-black rounded-full select-none">
+                                {pctString}
+                              </span>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <div className="w-full sm:w-1/2 flex flex-col items-center justify-center text-center p-4">
+                      <p className="text-xs font-bold text-gray-450 dark:text-gray-550">No expenses on file</p>
+                      <p className="text-[10px] text-gray-400 dark:text-gray-600 mt-1">Select a different month or add new manual/CSV entries to generate charts!</p>
+                    </div>
+                  )}
+                </div>
               </motion.div>
             </AnimatePresence>
           </div>
