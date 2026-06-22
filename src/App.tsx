@@ -4290,11 +4290,41 @@ function Dashboard({ expenses, incomes = [], recurringExpenses, isDarkMode, budg
                 itemStyle={{ color: isDarkMode ? '#F9FAFB' : '#111827' }}
               />
               <Legend 
-                verticalAlign="top" 
-                height={36} 
-                iconType="circle"
-                iconSize={8}
-                wrapperStyle={{ fontSize: 11, color: isDarkMode ? '#F9FAFB' : '#111827' }} 
+                content={(props) => {
+                  const { payload } = props;
+                  if (!payload) return null;
+                  return (
+                    <div className="flex flex-wrap items-center justify-center gap-4 mb-4 select-none">
+                      <AnimatePresence mode="popLayout">
+                        {payload.map((entry: any) => {
+                          const color = entry.color || '#3B82F6';
+                          return (
+                            <motion.div
+                              key={entry.value}
+                              layout
+                              initial={{ opacity: 0, scale: 0.6, y: -5 }}
+                              animate={{ opacity: 1, scale: 1, y: 0 }}
+                              exit={{ opacity: 0, scale: 0.6, y: 5 }}
+                              transition={{ 
+                                type: "spring", 
+                                stiffness: 400, 
+                                damping: 28,
+                                layout: { type: "spring", stiffness: 450, damping: 30 }
+                              }}
+                              className="flex items-center gap-2 text-xs font-semibold text-gray-700 dark:text-gray-300"
+                            >
+                              <span 
+                                className="w-2 h-2 rounded-full inline-block shrink-0" 
+                                style={{ backgroundColor: color, boxShadow: `0 0 6px ${color}66` }} 
+                              />
+                              <span className="tracking-tight">{entry.value}</span>
+                            </motion.div>
+                          );
+                        })}
+                      </AnimatePresence>
+                    </div>
+                  );
+                }}
               />
               {selectedTrendCategories.map(cat => (
                 <Line 
