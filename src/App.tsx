@@ -3116,6 +3116,36 @@ function Dashboard({ expenses, incomes = [], recurringExpenses, isDarkMode, budg
     return acc;
   }, {} as Record<string, number>);
 
+  const highestSpendingDay = React.useMemo(() => {
+    if (!monthExpenses || monthExpenses.length === 0) return null;
+    let maxDate = '';
+    let maxAmount = 0;
+    Object.entries(monthDailyAggregated).forEach(([dateStr, amount]) => {
+      if (amount > maxAmount) {
+        maxAmount = amount;
+        maxDate = dateStr;
+      }
+    });
+    if (maxAmount === 0) return null;
+
+    const dayExpensesList = monthExpenses.filter(e => e.date === maxDate);
+    let mainExpenseDescription = '';
+    let maxItemAmount = 0;
+    dayExpensesList.forEach(e => {
+      if (e.amount > maxItemAmount) {
+        maxItemAmount = e.amount;
+        mainExpenseDescription = e.description;
+      }
+    });
+
+    return {
+      date: maxDate,
+      amount: maxAmount,
+      mainItem: mainExpenseDescription,
+      itemCount: dayExpensesList.length
+    };
+  }, [monthExpenses, monthDailyAggregated]);
+
   const monthDailyData = daysInSelectedMonth.map(day => {
     const dateStr = format(day, 'yyyy-MM-dd');
     return {
@@ -3767,7 +3797,7 @@ function Dashboard({ expenses, incomes = [], recurringExpenses, isDarkMode, budg
       </div>
 
       {/* Stats Row */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
         {/* Wallet Balance (All-Time) */}
         <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-800 p-6 transition-colors duration-200">
           <div className="flex items-center gap-3 mb-2 text-gray-500 dark:text-gray-400">
@@ -3870,6 +3900,37 @@ function Dashboard({ expenses, incomes = [], recurringExpenses, isDarkMode, budg
               vs. ₹{totalPrevMonthSpent.toLocaleString('en-IN', { maximumFractionDigits: 0 })} in {format(previousMonthDate, 'MMM yyyy')}
             </span>
           </div>
+        </div>
+
+        {/* Peak Spending Day Card */}
+        <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-800 p-6 transition-colors duration-200">
+          <div className="flex items-center gap-3 mb-2 text-gray-500 dark:text-gray-400">
+            <Calendar className="w-5 h-5 text-purple-650 dark:text-purple-400" />
+            <span className="font-medium text-sm">Peak Spend Day</span>
+          </div>
+
+          {highestSpendingDay ? (
+            <div>
+              <p className="text-3xl font-bold text-gray-905 dark:text-gray-50">
+                ₹{highestSpendingDay.amount.toFixed(2)}
+              </p>
+              <div className="mt-1 flex flex-col gap-0.5">
+                <div className="flex items-center gap-1.5 text-xs">
+                  <span className="font-bold text-purple-600 dark:text-purple-400">
+                    {format(parse(highestSpendingDay.date, 'yyyy-MM-dd', new Date()), 'eeee, MMM dd')}
+                  </span>
+                </div>
+                <span className="text-[10px] text-gray-400 dark:text-gray-550 truncate block" title={`Largest item: ${highestSpendingDay.mainItem}`}>
+                  Peak item: {highestSpendingDay.mainItem || 'No details'} ({highestSpendingDay.itemCount} txn{highestSpendingDay.itemCount > 1 ? 's' : ''})
+                </span>
+              </div>
+            </div>
+          ) : (
+            <div>
+              <p className="text-3xl font-bold text-gray-300 dark:text-gray-700">₹0.00</p>
+              <span className="text-[10px] text-gray-400 dark:text-gray-500 block mt-1">No expenses logged</span>
+            </div>
+          )}
         </div>
       </div>
 
