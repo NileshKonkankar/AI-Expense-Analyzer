@@ -1969,32 +1969,46 @@ function ExpenseList({ expenses }: { expenses: Expense[] }) {
       ) : filteredExpenses.length === 0 ? (
         <p className="text-gray-500 dark:text-gray-400 text-sm text-center py-8">No expenses match your filters.</p>
       ) : (
-        <div className="space-y-4 max-h-[400px] overflow-y-auto pr-2">
-          {filteredExpenses.map((expense) => (
-            <div key={expense.id} className="flex items-center justify-between p-3 hover:bg-gray-50 dark:hover:bg-gray-800/50 rounded-xl transition-colors group">
-              <div className="flex items-center gap-3">
-                <div 
-                  className="w-10 h-10 rounded-full flex items-center justify-center text-white font-medium text-xs shadow-sm"
-                  style={{ backgroundColor: CATEGORY_COLORS[expense.category] || CATEGORY_COLORS.Other }}
-                >
-                  {expense.category.substring(0, 2).toUpperCase()}
+        <div className="space-y-4 max-h-[400px] overflow-y-auto pr-2 relative">
+          <AnimatePresence mode="popLayout">
+            {filteredExpenses.map((expense) => (
+              <motion.div
+                key={expense.id}
+                layout
+                initial={{ opacity: 0, y: 12, scale: 0.96 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={{ opacity: 0, y: -12, scale: 0.96 }}
+                transition={{
+                  opacity: { duration: 0.2 },
+                  layout: { type: "spring", stiffness: 500, damping: 35 },
+                  y: { type: "spring", stiffness: 450, damping: 30 }
+                }}
+                className="flex items-center justify-between p-3 hover:bg-gray-50 dark:hover:bg-gray-800/50 rounded-xl transition-colors group"
+              >
+                <div className="flex items-center gap-3">
+                  <div 
+                    className="w-10 h-10 rounded-full flex items-center justify-center text-white font-medium text-xs shadow-sm"
+                    style={{ backgroundColor: CATEGORY_COLORS[expense.category] || CATEGORY_COLORS.Other }}
+                  >
+                    {expense.category.substring(0, 2).toUpperCase()}
+                  </div>
+                  <div>
+                    <p className="font-medium text-gray-900 dark:text-gray-100 text-sm">{expense.description}</p>
+                    <p className="text-xs text-gray-500 dark:text-gray-400">{expense.date} • {expense.category}</p>
+                  </div>
                 </div>
-                <div>
-                  <p className="font-medium text-gray-900 dark:text-gray-100 text-sm">{expense.description}</p>
-                  <p className="text-xs text-gray-500 dark:text-gray-400">{expense.date} • {expense.category}</p>
+                <div className="flex items-center gap-3">
+                  <span className="font-semibold text-gray-900 dark:text-gray-100">₹{expense.amount.toFixed(2)}</span>
+                  <button
+                    onClick={() => setExpenseToDelete(expense.id)}
+                    className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg opacity-0 group-hover:opacity-100 transition-all"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
                 </div>
-              </div>
-              <div className="flex items-center gap-3">
-                <span className="font-semibold text-gray-900 dark:text-gray-100">₹{expense.amount.toFixed(2)}</span>
-                <button
-                  onClick={() => setExpenseToDelete(expense.id)}
-                  className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg opacity-0 group-hover:opacity-100 transition-all"
-                >
-                  <Trash2 className="w-4 h-4" />
-                </button>
-              </div>
-            </div>
-          ))}
+              </motion.div>
+            ))}
+          </AnimatePresence>
         </div>
       )}
 
