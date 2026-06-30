@@ -5,7 +5,7 @@ import { db, auth, loginWithGoogle, logout } from './firebase';
 import { onAuthStateChanged } from 'firebase/auth';
 import { format, addMonths, subMonths, parse, startOfMonth, endOfMonth, eachDayOfInterval, startOfWeek, endOfWeek, isSameDay, isSameMonth, addYears, subYears } from 'date-fns';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RechartsTooltip, BarChart, Bar, XAxis, YAxis, CartesianGrid, AreaChart, Area, Legend, LineChart, Line } from 'recharts';
-import { Plus, Trash2, LogOut, Loader2, Sparkles, TrendingUp, TrendingDown, DollarSign, PieChart as PieChartIcon, Activity, Sun, Moon, Repeat, Lightbulb, Target, Filter, ChevronDown, ChevronUp, X, Search, ChevronLeft, ChevronRight, Calendar, Bell, ChevronFirst, ChevronLast, Printer, AlertTriangle, Mail, Check, PiggyBank, Upload, FileSpreadsheet } from 'lucide-react';
+import { Plus, Trash2, LogOut, Loader2, Sparkles, TrendingUp, TrendingDown, DollarSign, PieChart as PieChartIcon, Activity, Sun, Moon, Repeat, Lightbulb, Target, Filter, ChevronDown, ChevronUp, X, Search, ChevronLeft, ChevronRight, Calendar, Bell, ChevronFirst, ChevronLast, Printer, AlertTriangle, Mail, Check, PiggyBank, Upload, FileSpreadsheet, Clock } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from './lib/utils';
 import * as d3 from 'd3';
@@ -2998,6 +2998,9 @@ function Dashboard({ expenses, incomes = [], recurringExpenses, isDarkMode, budg
   // Calendar Heatmap State
   const [selectedHeatmapDay, setSelectedHeatmapDay] = useState<string | null>(null);
 
+  // Recurring Obligations Calendar State
+  const [selectedObligationDay, setSelectedObligationDay] = useState<string | null>(null);
+
   const monthBudgets = budgetGoals.filter(b => b.month === selectedDashboardMonth);
   const totalMonthBudgetLimit = monthBudgets.reduce((sum, b) => sum + b.amount, 0);
   const totalBudgetPercent = totalMonthBudgetLimit > 0 ? Math.min(100, (totalMonthSpent / totalMonthBudgetLimit) * 100) : 0;
@@ -3213,6 +3216,100 @@ function Dashboard({ expenses, incomes = [], recurringExpenses, isDarkMode, budg
     if (!selectedHeatmapDay) return null;
     return heatmapDays.find(d => d.dateString === selectedHeatmapDay) || null;
   }, [selectedHeatmapDay, heatmapDays]);
+
+  // --- Recurring Obligations Calendar Calculations ---
+  const recurringDuesCalendar = React.useMemo(() => {
+    const startOfCal = startOfWeek(startOfMonth(selectedDate));
+    const endOfCal = endOfWeek(endOfMonth(selectedDate));
+    const daysInterval = eachDayOfInterval({ start: startOfCal, end: endOfCal });
+
+    return daysInterval.map(day => {
+      const dateStr = format(day, 'yyyy-MM-dd');
+      
+      // Find recurring expenses that fall on this day
+      const dues = recurringExpenses.filter(re => {
+        // Obligation starts from nextDueDate
+        if (dateStr < re.nextDueDate) return false;
+        
+        const startDate = parse(re.nextDueDate, 'yyyy-MM-dd', new Date());
+        
+        if (re.frequency === 'daily') {
+          return true;
+        }
+        if (re.frequency === 'weekly') {
+          return day.getDay() === startDate.getDay();
+        }
+        if (re.frequency === 'monthly') {
+          return day.getDate() === startDate.getDate();
+        }
+        if (re.frequency === 'yearly') {
+          return day.getMonth() === startDate.getMonth() && day.getDate() === startDate.getDate();
+        }
+        return false;
+      }).map(re => {
+        // Smart matching to determine if already PAID in this calendar's month
+        const currentMonthStr = format(day, 'yyyy-MM');
+        const isPaid = expenses.some(e => {
+          if (!e.date.startsWith(currentMonthStr)) return false;
+          
+          const descMatch = e.description.toLowerCase().includes(re.description.toLowerCase()) || 
+                            re.description.toLowerCase().includes(e.description.toLowerCase());
+          const catMatch = e.category === re.category;
+          const amtMatch = Math.abs(e.amount - re.amount) / re.amount < 0.25; // 25% tolerance
+          
+          return (descMatch && (amtMatch || catMatch)) || (catMatch && amtMatch);
+        });
+
+        return {
+          ...re,
+          isPaid
+        };
+      });
+
+      const totalAmount = dues.reduce((sum, re) => sum + re.amount, 0);
+
+      return {
+        date: day,
+        dateString: dateStr,
+        dayNumber: format(day, 'd'),
+        isCurrentMonth: isSameMonth(day, selectedDate),
+        isToday: isSameDay(day, new Date()),
+        dues,
+        totalAmount
+      };
+    });
+  }, [selectedDate, recurringExpenses, expenses]);
+
+  const activeObligationDayData = React.useMemo(() => {
+    if (!selectedObligationDay) return null;
+    return recurringDuesCalendar.find(d => d.dateString === selectedObligationDay) || null;
+  }, [selectedObligationDay, recurringDuesCalendar]);
+
+  // Calculations for monthly obligations
+  const monthObligationsSummary = React.useMemo(() => {
+    const duesInMonth = recurringDuesCalendar.filter(d => d.isCurrentMonth && d.dues.length > 0);
+    
+    // Flat map all instances due this month
+    const allDuesInstances = duesInMonth.flatMap(d => d.dues.map(re => ({
+      ...re,
+      dateString: d.dateString,
+      date: d.date
+    })));
+
+    const totalCommitted = allDuesInstances.reduce((sum, item) => sum + item.amount, 0);
+    const paidCommitted = allDuesInstances.filter(item => item.isPaid).reduce((sum, item) => sum + item.amount, 0);
+    const unpaidCommitted = totalCommitted - paidCommitted;
+
+    return {
+      allInstances: allDuesInstances.sort((a, b) => a.dateString.localeCompare(b.dateString)),
+      totalCommitted,
+      paidCommitted,
+      unpaidCommitted,
+      unpaidCount: allDuesInstances.filter(item => !item.isPaid).length,
+      paidCount: allDuesInstances.filter(item => item.isPaid).length,
+      totalCount: allDuesInstances.length
+    };
+  }, [recurringDuesCalendar]);
 
   // --- 6-Month Budget vs Spending Line Chart calculations ---
   const last6MonthsList = React.useMemo(() => {
@@ -4615,6 +4712,315 @@ function Dashboard({ expenses, incomes = [], recurringExpenses, isDarkMode, budg
                     Hover over or select any calendar day to analyze detailed ledger breakdowns and spend concentrations in real-time.
                   </p>
                 </div>
+              )}
+            </AnimatePresence>
+          </div>
+        </div>
+      </div>
+
+      {/* Fixed Monthly Financial Obligations Calendar Card */}
+      <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-800 p-6 transition-colors duration-200">
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 mb-6">
+          <div className="flex items-center gap-3">
+            <div className="p-2 bg-purple-50 dark:bg-purple-950/40 rounded-xl">
+              <Repeat className="w-5 h-5 text-purple-600 dark:text-purple-400" />
+            </div>
+            <div>
+              <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-50 uppercase tracking-wider text-[10px] text-purple-600 dark:text-purple-400 font-mono">Obligations Engine</h3>
+              <h2 className="text-base font-bold text-gray-900 dark:text-gray-50 leading-tight">Fixed Monthly Financial Obligations Calendar</h2>
+              <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
+                Visualize and budget for recurring payments, subscriptions, and contractual obligations due in {format(selectedDate, 'MMMM yyyy')}.
+              </p>
+            </div>
+          </div>
+
+          {/* Quick Metrics */}
+          <div className="flex flex-wrap gap-2.5">
+            <div className="bg-gray-50 dark:bg-gray-800/50 px-3 py-2 rounded-xl border border-gray-100 dark:border-gray-800 flex flex-col justify-center min-w-[100px]">
+              <span className="text-[9px] text-gray-450 dark:text-gray-500 uppercase font-bold tracking-wider">Total Dues</span>
+              <span className="text-sm font-black text-gray-950 dark:text-gray-50">
+                ₹{monthObligationsSummary.totalCommitted.toLocaleString('en-IN', { maximumFractionDigits: 0 })}
+              </span>
+            </div>
+            <div className="bg-emerald-50/50 dark:bg-emerald-950/20 px-3 py-2 rounded-xl border border-emerald-100/30 dark:border-emerald-900/10 flex flex-col justify-center min-w-[100px]">
+              <span className="text-[9px] text-emerald-600 dark:text-emerald-400 uppercase font-bold tracking-wider">Paid Dues</span>
+              <span className="text-sm font-black text-emerald-650 dark:text-emerald-450">
+                ₹{monthObligationsSummary.paidCommitted.toLocaleString('en-IN', { maximumFractionDigits: 0 })}
+              </span>
+            </div>
+            <div className="bg-amber-50/50 dark:bg-amber-950/20 px-3 py-2 rounded-xl border border-amber-100/30 dark:border-amber-900/10 flex flex-col justify-center min-w-[100px]">
+              <span className="text-[9px] text-amber-600 dark:text-amber-400 uppercase font-bold tracking-wider">Unpaid Dues</span>
+              <span className="text-sm font-black text-amber-650 dark:text-amber-450">
+                ₹{monthObligationsSummary.unpaidCommitted.toLocaleString('en-IN', { maximumFractionDigits: 0 })}
+              </span>
+            </div>
+          </div>
+        </div>
+
+        {/* Progress Bar of Fixed Obligations Fulfilled */}
+        {monthObligationsSummary.totalCommitted > 0 && (
+          <div className="mb-6 bg-gray-50 dark:bg-gray-800/40 p-4 rounded-xl border border-gray-100 dark:border-gray-800/50">
+            <div className="flex justify-between items-center text-xs font-semibold mb-1.5">
+              <span className="text-gray-600 dark:text-gray-400">Month's Obligations Progress</span>
+              <span className="text-purple-600 dark:text-purple-400 font-extrabold">
+                {((monthObligationsSummary.paidCommitted / monthObligationsSummary.totalCommitted) * 105 ? Math.min(100, (monthObligationsSummary.paidCommitted / monthObligationsSummary.totalCommitted) * 100) : 0).toFixed(0)}% Paid
+              </span>
+            </div>
+            <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2 overflow-hidden shadow-inner">
+              <div 
+                className="h-full bg-gradient-to-r from-purple-500 to-indigo-600 rounded-full transition-all duration-750 ease-out"
+                style={{ width: `${(monthObligationsSummary.paidCommitted / monthObligationsSummary.totalCommitted) * 100}%` }}
+              />
+            </div>
+            <p className="text-[10px] text-gray-400 dark:text-gray-500 mt-1.5 flex items-center gap-1">
+              <Sparkles className="w-3.5 h-3.5 text-yellow-500" />
+              {monthObligationsSummary.unpaidCount === 0 
+                ? "Incredible! All fixed obligations for this month have been successfully identified as paid!"
+                : `${monthObligationsSummary.unpaidCount} bill${monthObligationsSummary.unpaidCount > 1 ? 's' : ''} remaining to be fulfilled in ${format(selectedDate, 'MMMM')}.`
+              }
+            </p>
+          </div>
+        )}
+
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+          {/* Monthly Obligations Calendar Grid */}
+          <div className="lg:col-span-7 space-y-4">
+            <div className="grid grid-cols-7 gap-2 text-center text-xs font-semibold text-gray-400 dark:text-gray-500">
+              {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((d) => (
+                <div key={d} className="py-1 uppercase text-[10px] tracking-wider font-bold">{d}</div>
+              ))}
+            </div>
+
+            <div className="grid grid-cols-7 gap-2.5">
+              {recurringDuesCalendar.map((day, idx) => {
+                const isSelected = selectedObligationDay === day.dateString;
+                const hasDues = day.dues.length > 0;
+                const allPaid = hasDues && day.dues.every(d => d.isPaid);
+                
+                return (
+                  <motion.div
+                    key={idx}
+                    whileHover={{ scale: day.isCurrentMonth ? 1.05 : 1 }}
+                    onClick={() => {
+                      if (day.isCurrentMonth) {
+                        setSelectedObligationDay(isSelected ? null : day.dateString);
+                      }
+                    }}
+                    className={cn(
+                      "aspect-square rounded-xl flex flex-col justify-between p-1.5 transition-all cursor-pointer relative group border",
+                      day.isCurrentMonth 
+                        ? isSelected
+                          ? "bg-purple-50/50 dark:bg-purple-950/20 border-purple-500 dark:border-purple-400 ring-2 ring-purple-500/20 z-10 shadow-md"
+                          : hasDues
+                            ? allPaid
+                              ? "bg-emerald-50/20 dark:bg-emerald-950/5 border-emerald-100 dark:border-emerald-900/30 hover:bg-emerald-50/40 dark:hover:bg-emerald-950/15"
+                              : "bg-amber-50/20 dark:bg-amber-950/5 border-amber-100 dark:border-amber-900/30 hover:bg-amber-50/40 dark:hover:bg-amber-950/15"
+                            : "bg-transparent border-gray-100 dark:border-gray-850 hover:bg-gray-50 dark:hover:bg-gray-800/20" 
+                        : "opacity-20 cursor-not-allowed border-transparent bg-transparent"
+                    )}
+                  >
+                    {/* Day number */}
+                    <div className="flex justify-between items-center w-full">
+                      <span className={cn(
+                        "text-xs font-bold leading-none",
+                        day.isCurrentMonth 
+                          ? "text-gray-700 dark:text-gray-300"
+                          : "text-gray-400 dark:text-gray-600",
+                        day.isToday && "text-blue-600 dark:text-blue-400 underline decoration-2 underline-offset-2 font-black"
+                      )}>
+                        {day.dayNumber}
+                      </span>
+                      
+                      {/* Top indicator icon */}
+                      {hasDues && day.isCurrentMonth && (
+                        allPaid ? (
+                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shadow-[0_0_6px_#10b981] shrink-0" />
+                        ) : (
+                          <span className="w-1.5 h-1.5 rounded-full bg-amber-500 shadow-[0_0_6px_#f59e0b] shrink-0 animate-pulse" />
+                        )
+                      )}
+                    </div>
+
+                    {/* Amount indicator pill or label */}
+                    {hasDues && day.isCurrentMonth && (
+                      <span className={cn(
+                        "text-[9px] font-extrabold font-mono text-center leading-none px-1 py-0.5 rounded-md truncate max-w-full select-none",
+                        allPaid 
+                          ? "bg-emerald-100/50 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-400"
+                          : "bg-amber-100/60 dark:bg-amber-950/50 text-amber-700 dark:text-amber-400"
+                      )}>
+                        ₹{day.totalAmount >= 1000 
+                          ? `${(day.totalAmount / 1000).toFixed(day.totalAmount % 1000 === 0 ? 0 : 1)}k`
+                          : day.totalAmount.toFixed(0)
+                        }
+                      </span>
+                    )}
+
+                    <title>{`${day.dateString}: ₹${day.totalAmount.toLocaleString('en-IN')} obligations`}</title>
+                  </motion.div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Details Sidebar Panel */}
+          <div className="lg:col-span-5 bg-gray-50 dark:bg-gray-900/40 rounded-2xl p-5 border border-gray-100 dark:border-gray-800/80 flex flex-col justify-between min-h-[340px]">
+            <AnimatePresence mode="wait">
+              {activeObligationDayData ? (
+                <motion.div
+                  key={activeObligationDayData.dateString}
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -10 }}
+                  transition={{ duration: 0.18 }}
+                  className="space-y-4 h-full flex flex-col justify-between"
+                >
+                  <div className="space-y-4">
+                    <div className="flex items-center justify-between border-b border-gray-150 dark:border-gray-800 pb-3">
+                      <div>
+                        <span className="text-[9px] bg-purple-100 dark:bg-purple-950 text-purple-700 dark:text-purple-400 font-extrabold px-2 py-0.5 rounded-full uppercase tracking-wider block w-fit mb-1">
+                          Obligations Due
+                        </span>
+                        <h4 className="text-sm font-black text-gray-950 dark:text-gray-50">
+                          {format(activeObligationDayData.date, 'EEEE, MMMM dd, yyyy')}
+                        </h4>
+                      </div>
+                      <button 
+                        onClick={() => setSelectedObligationDay(null)}
+                        className="text-xs font-semibold text-gray-500 hover:text-gray-800 dark:hover:text-gray-300 flex items-center gap-1 bg-white dark:bg-gray-800 px-2 py-1 rounded-lg border border-gray-250 dark:border-gray-700 shadow-sm transition-colors"
+                      >
+                        All Agenda
+                      </button>
+                    </div>
+
+                    {activeObligationDayData.dues.length === 0 ? (
+                      <div className="flex flex-col items-center justify-center py-12 text-center text-gray-450 dark:text-gray-550">
+                        <Check className="w-8 h-8 text-emerald-500 mb-2" />
+                        <span className="text-xs font-bold uppercase tracking-wider text-emerald-600">No Obligations Due</span>
+                        <p className="text-[11px] max-w-[200px] mt-1">Excellent! No recurring expenses or fixed contracts are registered for this day.</p>
+                      </div>
+                    ) : (
+                      <div className="space-y-2.5 max-h-[220px] overflow-y-auto pr-1 customize-scrollbar">
+                        <span className="text-[10px] text-gray-450 dark:text-gray-550 uppercase font-black tracking-wider block mb-1">
+                          Day's Obligation Checklist ({activeObligationDayData.dues.length})
+                        </span>
+                        <div className="space-y-2">
+                          {activeObligationDayData.dues.map((re) => (
+                            <div 
+                              key={re.id} 
+                              className="bg-white dark:bg-gray-900 border border-gray-150 dark:border-gray-800/80 p-3 rounded-xl flex items-center justify-between hover:border-purple-200 dark:hover:border-purple-900/50 transition-colors group"
+                            >
+                              <div className="min-w-0 pr-2">
+                                <div className="flex items-center gap-1.5 mb-1">
+                                  <p className="text-xs font-black text-gray-950 dark:text-gray-50 truncate">{re.description}</p>
+                                  <span className="text-[9px] px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 capitalize font-bold">
+                                    {re.frequency}
+                                  </span>
+                                </div>
+                                <span 
+                                  className="text-[9px] font-extrabold px-1.5 py-0.5 rounded text-white mr-1.5"
+                                  style={{ backgroundColor: CATEGORY_COLORS[re.category] || CATEGORY_COLORS.Other }}
+                                >
+                                  {re.category}
+                                </span>
+                              </div>
+                              <div className="text-right flex-shrink-0 flex flex-col items-end gap-1">
+                                <span className="text-xs font-black text-gray-950 dark:text-gray-550">
+                                  ₹{re.amount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                                </span>
+                                {re.isPaid ? (
+                                  <span className="text-[9px] bg-emerald-50 dark:bg-emerald-950/50 text-emerald-600 dark:text-emerald-400 font-extrabold px-1.5 py-0.5 rounded-full flex items-center gap-0.5 border border-emerald-100 dark:border-emerald-900/30">
+                                    <Check className="w-3 h-3 text-emerald-500 shrink-0" /> Paid
+                                  </span>
+                                ) : (
+                                  <span className="text-[9px] bg-amber-50 dark:bg-amber-950/50 text-amber-600 dark:text-amber-400 font-extrabold px-1.5 py-0.5 rounded-full flex items-center gap-1 border border-amber-100 dark:border-amber-900/30">
+                                    <Clock className="w-2.5 h-2.5 text-amber-500 shrink-0" /> Unpaid
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="bg-white dark:bg-gray-900 border border-gray-150 dark:border-gray-800/80 p-3 rounded-xl mt-3 flex items-center justify-between text-xs">
+                    <span className="text-gray-450 dark:text-gray-500 uppercase text-[9px] tracking-wider font-extrabold">Relative Day Commitment</span>
+                    <span className="font-bold text-gray-950 dark:text-gray-100 font-mono">
+                      ₹{activeObligationDayData.totalAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                    </span>
+                  </div>
+                </motion.div>
+              ) : (
+                /* Falling back to full month's agenda list! */
+                <motion.div
+                  key="full-month-agenda"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  transition={{ duration: 0.18 }}
+                  className="space-y-4 h-full flex flex-col justify-between"
+                >
+                  <div className="space-y-3 flex flex-col h-full justify-between">
+                    <div>
+                      <div className="flex items-center justify-between border-b border-gray-150 dark:border-gray-800 pb-3">
+                        <div>
+                          <span className="text-[9px] bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-400 font-extrabold px-2 py-0.5 rounded-full uppercase tracking-wider block w-fit mb-1">
+                            Monthly Agenda
+                          </span>
+                          <h4 className="text-sm font-black text-gray-950 dark:text-gray-50">
+                            {format(selectedDate, 'MMMM yyyy')} Schedule
+                          </h4>
+                        </div>
+                      </div>
+
+                      {monthObligationsSummary.allInstances.length === 0 ? (
+                        <div className="flex flex-col items-center justify-center py-16 text-center text-gray-450 dark:text-gray-550">
+                          <Check className="w-10 h-10 text-emerald-500 mb-3" />
+                          <span className="text-xs font-bold uppercase tracking-wider text-emerald-600">Zero Fixed Commitments</span>
+                          <p className="text-[11px] max-w-[220px] mt-1.5">No recurring expenses fall within this month. Add some in the Expenses form!</p>
+                        </div>
+                      ) : (
+                        <div className="space-y-2 max-h-[220px] overflow-y-auto pr-1 mt-3 customize-scrollbar">
+                          {monthObligationsSummary.allInstances.map((item, idx) => (
+                            <div 
+                              key={`${item.id}-${idx}`}
+                              onClick={() => setSelectedObligationDay(item.dateString)}
+                              className="bg-white dark:bg-gray-900 border border-gray-150 dark:border-gray-800 p-2.5 rounded-xl flex items-center justify-between hover:border-purple-300 dark:hover:border-purple-800 cursor-pointer transition-all"
+                            >
+                              <div className="min-w-0 pr-2">
+                                <span className="text-[9px] font-black text-purple-600 dark:text-purple-400 block mb-0.5 uppercase">
+                                  {format(item.date, 'MMM dd')} ({format(item.date, 'eee')})
+                                </span>
+                                <p className="text-xs font-black text-gray-950 dark:text-gray-50 truncate">{item.description}</p>
+                              </div>
+                              <div className="text-right flex-shrink-0 flex items-center gap-2">
+                                <div className="flex flex-col items-end">
+                                  <span className="text-xs font-black text-gray-950 dark:text-gray-50">
+                                    ₹{item.amount.toLocaleString('en-IN')}
+                                  </span>
+                                  <span className="text-[8px] text-gray-400 dark:text-gray-500 capitalize">{item.frequency}</span>
+                                </div>
+                                {item.isPaid ? (
+                                  <Check className="w-4 h-4 text-emerald-500 shrink-0 bg-emerald-50 dark:bg-emerald-950/50 p-0.5 rounded-full" />
+                                ) : (
+                                  <Clock className="w-4 h-4 text-amber-500 shrink-0 bg-amber-50 dark:bg-amber-950/50 p-0.5 rounded-full" />
+                                )}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="bg-white dark:bg-gray-900 border border-gray-150 dark:border-gray-800/80 p-3 rounded-xl mt-3 flex items-center justify-between text-xs">
+                      <span className="text-gray-450 dark:text-gray-550 uppercase text-[9px] tracking-wider font-extrabold">Active Obligations Scheduled</span>
+                      <span className="font-extrabold text-purple-650 dark:text-purple-450 font-mono">
+                        {monthObligationsSummary.totalCount} Commitments
+                      </span>
+                    </div>
+                  </div>
+                </motion.div>
               )}
             </AnimatePresence>
           </div>
