@@ -3001,6 +3001,15 @@ function Dashboard({ expenses, incomes = [], recurringExpenses, isDarkMode, budg
   // Recurring Obligations Calendar State
   const [selectedObligationDay, setSelectedObligationDay] = useState<string | null>(null);
 
+  // Budget vs Spending Trend Range State
+  const [trendRangeMode, setTrendRangeMode] = useState<'3m' | '6m' | '1y' | 'custom'>('6m');
+  const [trendCustomStart, setTrendCustomStart] = useState<string>(() => {
+    return format(subMonths(new Date(), 5), 'yyyy-MM');
+  });
+  const [trendCustomEnd, setTrendCustomEnd] = useState<string>(() => {
+    return format(new Date(), 'yyyy-MM');
+  });
+
   const monthBudgets = budgetGoals.filter(b => b.month === selectedDashboardMonth);
   const totalMonthBudgetLimit = monthBudgets.reduce((sum, b) => sum + b.amount, 0);
   const totalBudgetPercent = totalMonthBudgetLimit > 0 ? Math.min(100, (totalMonthSpent / totalMonthBudgetLimit) * 100) : 0;
@@ -3311,14 +3320,50 @@ function Dashboard({ expenses, incomes = [], recurringExpenses, isDarkMode, budg
     };
   }, [recurringDuesCalendar]);
 
-  // --- 6-Month Budget vs Spending Line Chart calculations ---
+  // --- Dynamic Trend Budget vs Spending Line Chart calculations ---
   const last6MonthsList = React.useMemo(() => {
-    const list = [];
-    for (let i = 0; i < 6; i++) {
-      list.push(format(subMonths(new Date(), i), 'yyyy-MM'));
+    if (trendRangeMode !== 'custom') {
+      const numMonths = trendRangeMode === '3m' ? 3 : trendRangeMode === '1y' ? 12 : 6;
+      const list = [];
+      for (let i = 0; i < numMonths; i++) {
+        list.push(format(subMonths(new Date(), i), 'yyyy-MM'));
+      }
+      return list.reverse(); // chronological order
+    } else {
+      // Custom range: parse start and end
+      try {
+        const start = parse(trendCustomStart, 'yyyy-MM', new Date());
+        const end = parse(trendCustomEnd, 'yyyy-MM', new Date());
+        
+        if (isNaN(start.getTime()) || isNaN(end.getTime()) || start > end) {
+          // Fallback if invalid
+          const list = [];
+          for (let i = 0; i < 6; i++) {
+            list.push(format(subMonths(new Date(), i), 'yyyy-MM'));
+          }
+          return list.reverse();
+        }
+        
+        const list = [];
+        let current = start;
+        // Safety guard to avoid infinite loop or too large range (limit to max 36 months)
+        let iterations = 0;
+        while (current <= end && iterations < 36) {
+          list.push(format(current, 'yyyy-MM'));
+          current = addMonths(current, 1);
+          iterations++;
+        }
+        return list;
+      } catch (e) {
+        // Fallback
+        const list = [];
+        for (let i = 0; i < 6; i++) {
+          list.push(format(subMonths(new Date(), i), 'yyyy-MM'));
+        }
+        return list.reverse();
+      }
     }
-    return list.reverse(); // chronological order
-  }, []);
+  }, [trendRangeMode, trendCustomStart, trendCustomEnd]);
 
   const last6MonthsData = React.useMemo(() => {
     return last6MonthsList.map(month => {
@@ -4284,7 +4329,7 @@ function Dashboard({ expenses, incomes = [], recurringExpenses, isDarkMode, budg
         </div>
       </div>
 
-      {/* 6-Month Budget vs Spending Line Chart Card */}
+      {/* Dynamic Trend Budget vs Spending Line Chart Card */}
       <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-800 p-6 transition-colors duration-200">
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 mb-6">
           <div className="flex items-center gap-3">
@@ -4293,7 +4338,12 @@ function Dashboard({ expenses, incomes = [], recurringExpenses, isDarkMode, budg
             </div>
             <div>
               <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-50 uppercase tracking-wider text-[10px] text-indigo-600 dark:text-indigo-400">Long-Term Discipline Analyzer</h3>
-              <h2 className="text-base font-bold text-gray-900 dark:text-gray-50 leading-tight">6-Month Budget vs. Spending Trend</h2>
+              <h2 className="text-base font-bold text-gray-900 dark:text-gray-50 leading-tight">
+                {trendRangeMode === '3m' && '3-Month Budget vs. Spending Trend'}
+                {trendRangeMode === '6m' && '6-Month Budget vs. Spending Trend'}
+                {trendRangeMode === '1y' && '1-Year Budget vs. Spending Trend'}
+                {trendRangeMode === 'custom' && 'Custom Range Budget vs. Spending Trend'}
+              </h2>
               <p className="text-xs text-gray-400 mt-1">
                 Visualizing chronological overall monthly budget limits vs. actual expenditures to gauge fiscal resilience.
               </p>
@@ -4323,6 +4373,61 @@ function Dashboard({ expenses, incomes = [], recurringExpenses, isDarkMode, budg
               </div>
             </div>
           )}
+        </div>
+
+        {/* Trend Range Selector & Custom Inputs */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-3 bg-gray-50 dark:bg-gray-800/20 rounded-2xl mb-6 border border-gray-100 dark:border-gray-800">
+          <div className="flex flex-wrap items-center gap-1.5 p-1 bg-gray-100 dark:bg-gray-800 rounded-xl">
+            {(['3m', '6m', '1y', 'custom'] as const).map((mode) => (
+              <button
+                key={mode}
+                type="button"
+                onClick={() => setTrendRangeMode(mode)}
+                className={cn(
+                  "px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap",
+                  trendRangeMode === mode
+                    ? "bg-white dark:bg-gray-900 text-indigo-600 dark:text-indigo-400 shadow-sm"
+                    : "text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
+                )}
+              >
+                {mode === '3m' && '3 Months'}
+                {mode === '6m' && '6 Months'}
+                {mode === '1y' && '1 Year'}
+                {mode === 'custom' && 'Custom Range'}
+              </button>
+            ))}
+          </div>
+
+          <AnimatePresence>
+            {trendRangeMode === 'custom' && (
+              <motion.div 
+                initial={{ opacity: 0, y: -4, height: 0 }}
+                animate={{ opacity: 1, y: 0, height: 'auto' }}
+                exit={{ opacity: 0, y: -4, height: 0 }}
+                transition={{ duration: 0.15 }}
+                className="flex flex-wrap items-center gap-3 bg-white dark:bg-gray-900/60 p-2 sm:p-0 border sm:border-0 border-gray-100 dark:border-gray-800 rounded-xl"
+              >
+                <div className="flex items-center gap-2 text-xs font-bold text-gray-500 dark:text-gray-400">
+                  <span className="uppercase text-[9px] tracking-widest">Start</span>
+                  <input
+                    type="month"
+                    value={trendCustomStart}
+                    onChange={(e) => setTrendCustomStart(e.target.value)}
+                    className="px-2 py-1 bg-gray-50 dark:bg-gray-800 border border-gray-150 dark:border-gray-750 rounded-lg text-xs font-bold text-gray-750 dark:text-gray-250 outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500/20"
+                  />
+                </div>
+                <div className="flex items-center gap-2 text-xs font-bold text-gray-500 dark:text-gray-400">
+                  <span className="uppercase text-[9px] tracking-widest">End</span>
+                  <input
+                    type="month"
+                    value={trendCustomEnd}
+                    onChange={(e) => setTrendCustomEnd(e.target.value)}
+                    className="px-2 py-1 bg-gray-50 dark:bg-gray-800 border border-gray-150 dark:border-gray-750 rounded-lg text-xs font-bold text-gray-750 dark:text-gray-250 outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500/20"
+                  />
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
         </div>
 
         {/* The line chart */}
@@ -4384,7 +4489,7 @@ function Dashboard({ expenses, incomes = [], recurringExpenses, isDarkMode, budg
         </div>
       </div>
 
-      {/* 6-Month Category Spending Trends Line Chart Card */}
+      {/* Dynamic Category Spending Trends Line Chart Card */}
       <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-800 p-6 transition-colors duration-200" id="category-trends-chart-card">
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 mb-6">
           <div className="flex items-center gap-3">
@@ -4393,7 +4498,12 @@ function Dashboard({ expenses, incomes = [], recurringExpenses, isDarkMode, budg
             </div>
             <div>
               <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-50 uppercase tracking-wider text-[10px] text-indigo-600 dark:text-indigo-400 font-mono">Category Growth Trends</h3>
-              <h2 className="text-base font-bold text-gray-900 dark:text-gray-50 leading-tight">6-Month Category Spending Volatility</h2>
+              <h2 className="text-base font-bold text-gray-900 dark:text-gray-50 leading-tight">
+                {trendRangeMode === '3m' && '3-Month Category Spending Volatility'}
+                {trendRangeMode === '6m' && '6-Month Category Spending Volatility'}
+                {trendRangeMode === '1y' && '1-Year Category Spending Volatility'}
+                {trendRangeMode === 'custom' && 'Custom Range Category Spending Volatility'}
+              </h2>
               <p className="text-xs text-gray-400 mt-1">
                 Trace segmented expenditures across your personalized categories to monitor tracking consistency and monthly peaks.
               </p>
