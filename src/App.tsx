@@ -545,10 +545,14 @@ export default function App() {
               <AnimatePresence mode="wait" initial={false}>
                 <motion.div
                   key={isDarkMode ? 'sun' : 'moon'}
-                  initial={{ rotate: -90, scale: 0.6, opacity: 0 }}
+                  initial={{ rotate: -180, scale: 0.2, opacity: 0 }}
                   animate={{ rotate: 0, scale: 1, opacity: 1 }}
-                  exit={{ rotate: 90, scale: 0.6, opacity: 0 }}
-                  transition={{ duration: 0.2, ease: 'easeInOut' }}
+                  exit={{ rotate: 180, scale: 0.2, opacity: 0 }}
+                  transition={{ 
+                    type: 'spring', 
+                    stiffness: 280, 
+                    damping: 18 
+                  }}
                   className="flex items-center justify-center"
                 >
                   {isDarkMode ? (
