@@ -3007,6 +3007,7 @@ function Dashboard({ expenses, incomes = [], recurringExpenses, isDarkMode, budg
 
   // Budget vs Spending Trend Range State
   const [trendRangeMode, setTrendRangeMode] = useState<'3m' | '6m' | '1y' | 'custom'>('6m');
+  const [trendChartType, setTrendChartType] = useState<'line' | 'area' | 'bar'>('line');
   const [trendCustomStart, setTrendCustomStart] = useState<string>(() => {
     return format(subMonths(new Date(), 5), 'yyyy-MM');
   });
@@ -4379,27 +4380,51 @@ function Dashboard({ expenses, incomes = [], recurringExpenses, isDarkMode, budg
           )}
         </div>
 
-        {/* Trend Range Selector & Custom Inputs */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-3 bg-gray-50 dark:bg-gray-800/20 rounded-2xl mb-6 border border-gray-100 dark:border-gray-800">
-          <div className="flex flex-wrap items-center gap-1.5 p-1 bg-gray-100 dark:bg-gray-800 rounded-xl">
-            {(['3m', '6m', '1y', 'custom'] as const).map((mode) => (
-              <button
-                key={mode}
-                type="button"
-                onClick={() => setTrendRangeMode(mode)}
-                className={cn(
-                  "px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap",
-                  trendRangeMode === mode
-                    ? "bg-white dark:bg-gray-900 text-indigo-600 dark:text-indigo-400 shadow-sm"
-                    : "text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
-                )}
-              >
-                {mode === '3m' && '3 Months'}
-                {mode === '6m' && '6 Months'}
-                {mode === '1y' && '1 Year'}
-                {mode === 'custom' && 'Custom Range'}
-              </button>
-            ))}
+        {/* Trend Controls: Range Selector, Custom Inputs, and Chart Type Toggle */}
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 p-3 bg-gray-50 dark:bg-gray-800/20 rounded-2xl mb-6 border border-gray-100 dark:border-gray-800">
+          <div className="flex flex-wrap items-center gap-3">
+            {/* Range Mode Toggle */}
+            <div className="flex flex-wrap items-center gap-1.5 p-1 bg-gray-100 dark:bg-gray-800 rounded-xl">
+              {(['3m', '6m', '1y', 'custom'] as const).map((mode) => (
+                <button
+                  key={mode}
+                  type="button"
+                  onClick={() => setTrendRangeMode(mode)}
+                  className={cn(
+                    "px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap",
+                    trendRangeMode === mode
+                      ? "bg-white dark:bg-gray-900 text-indigo-600 dark:text-indigo-400 shadow-sm"
+                      : "text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
+                  )}
+                >
+                  {mode === '3m' && '3 Months'}
+                  {mode === '6m' && '6 Months'}
+                  {mode === '1y' && '1 Year'}
+                  {mode === 'custom' && 'Custom Range'}
+                </button>
+              ))}
+            </div>
+
+            {/* Chart Type Selector */}
+            <div className="flex items-center gap-1 p-1 bg-gray-100 dark:bg-gray-800 rounded-xl">
+              {(['line', 'area', 'bar'] as const).map((type) => (
+                <button
+                  key={type}
+                  type="button"
+                  onClick={() => setTrendChartType(type)}
+                  className={cn(
+                    "px-2.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer capitalize whitespace-nowrap",
+                    trendChartType === type
+                      ? "bg-white dark:bg-gray-900 text-indigo-600 dark:text-indigo-400 shadow-sm"
+                      : "text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
+                  )}
+                >
+                  {type === 'line' && 'Line'}
+                  {type === 'area' && 'Area'}
+                  {type === 'bar' && 'Bar'}
+                </button>
+              ))}
+            </div>
           </div>
 
           <AnimatePresence>
@@ -4434,62 +4459,190 @@ function Dashboard({ expenses, incomes = [], recurringExpenses, isDarkMode, budg
           </AnimatePresence>
         </div>
 
-        {/* The line chart */}
-        <div className="h-72 w-full mb-3">
-          <ResponsiveContainer width="100%" height="100%">
-            <LineChart data={last6MonthsData} margin={{ top: 10, right: 10, left: -15, bottom: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={isDarkMode ? '#374151' : '#E5E7EB'} />
-              <XAxis 
-                dataKey="label" 
-                axisLine={false} 
-                tickLine={false} 
-                tick={{ fontSize: 11, fill: isDarkMode ? '#9CA3AF' : '#6B7280' }} 
-              />
-              <YAxis 
-                axisLine={false} 
-                tickLine={false} 
-                tick={{ fontSize: 11, fill: isDarkMode ? '#9CA3AF' : '#6B7280' }} 
-                tickFormatter={(val) => `₹${val.toLocaleString()}`} 
-              />
-              <RechartsTooltip 
-                formatter={(value: number) => [`₹${value.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`, '']}
-                contentStyle={tooltipStyle}
-                itemStyle={{ color: isDarkMode ? '#F9FAFB' : '#111827' }}
-              />
-              <Legend 
-                verticalAlign="top" 
-                height={36} 
-                iconType="circle"
-                iconSize={8}
-                wrapperStyle={{ fontSize: 11, color: isDarkMode ? '#F9FAFB' : '#111827' }} 
-              />
-              <Line 
-                type="monotone" 
-                dataKey="spent" 
-                name="Total Spending" 
-                stroke="#6366f1" 
-                strokeWidth={3} 
-                dot={{ r: 4, strokeWidth: 1 }} 
-                activeDot={{ r: 7, strokeWidth: 0 }}
-                isAnimationActive={true}
-                animationDuration={800}
-                animationEasing="ease-out"
-              />
-              <Line 
-                type="monotone" 
-                dataKey="budget" 
-                name="Overall Budget Limit" 
-                stroke="#10b981" 
-                strokeWidth={3} 
-                strokeDasharray="5 5"
-                dot={{ r: 4, strokeWidth: 1 }} 
-                activeDot={{ r: 7, strokeWidth: 0 }}
-                isAnimationActive={true}
-                animationDuration={800}
-                animationEasing="ease-out"
-              />
-            </LineChart>
-          </ResponsiveContainer>
+        {/* The Animated Chart Container */}
+        <div className="h-72 w-full mb-3 relative overflow-hidden">
+          <AnimatePresence mode="wait">
+            <motion.div
+              key={`${trendRangeMode}-${trendCustomStart}-${trendCustomEnd}-${trendChartType}-${last6MonthsData.map(d => d.month).join('-')}`}
+              initial={{ opacity: 0, scale: 0.98, y: 10 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.98, y: -10 }}
+              transition={{ duration: 0.3, ease: [0.4, 0, 0.2, 1] }}
+              className="w-full h-full"
+            >
+              <ResponsiveContainer width="100%" height="100%">
+                {trendChartType === 'area' ? (
+                  <AreaChart data={last6MonthsData} margin={{ top: 10, right: 10, left: -15, bottom: 0 }}>
+                    <defs>
+                      <linearGradient id="trendSpentGrad" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#6366f1" stopOpacity={0.35}/>
+                        <stop offset="95%" stopColor="#6366f1" stopOpacity={0}/>
+                      </linearGradient>
+                      <linearGradient id="trendBudgetGrad" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#10b981" stopOpacity={0.25}/>
+                        <stop offset="95%" stopColor="#10b981" stopOpacity={0}/>
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={isDarkMode ? '#374151' : '#E5E7EB'} />
+                    <XAxis 
+                      dataKey="label" 
+                      axisLine={false} 
+                      tickLine={false} 
+                      tick={{ fontSize: 11, fill: isDarkMode ? '#9CA3AF' : '#6B7280' }} 
+                    />
+                    <YAxis 
+                      axisLine={false} 
+                      tickLine={false} 
+                      tick={{ fontSize: 11, fill: isDarkMode ? '#9CA3AF' : '#6B7280' }} 
+                      tickFormatter={(val) => `₹${val.toLocaleString()}`} 
+                    />
+                    <RechartsTooltip 
+                      formatter={(value: number) => [`₹${value.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`, '']}
+                      contentStyle={tooltipStyle}
+                      itemStyle={{ color: isDarkMode ? '#F9FAFB' : '#111827' }}
+                    />
+                    <Legend 
+                      verticalAlign="top" 
+                      height={36} 
+                      iconType="circle"
+                      iconSize={8}
+                      wrapperStyle={{ fontSize: 11, color: isDarkMode ? '#F9FAFB' : '#111827' }} 
+                    />
+                    <Area 
+                      type="monotone" 
+                      dataKey="spent" 
+                      name="Total Spending" 
+                      stroke="#6366f1" 
+                      strokeWidth={2.5} 
+                      fillOpacity={1}
+                      fill="url(#trendSpentGrad)"
+                      dot={{ r: 3.5, strokeWidth: 1 }} 
+                      activeDot={{ r: 6, strokeWidth: 0 }}
+                      isAnimationActive={true}
+                      animationDuration={600}
+                      animationEasing="ease-out"
+                    />
+                    <Area 
+                      type="monotone" 
+                      dataKey="budget" 
+                      name="Overall Budget Limit" 
+                      stroke="#10b981" 
+                      strokeWidth={2.5} 
+                      strokeDasharray="5 5"
+                      fillOpacity={1}
+                      fill="url(#trendBudgetGrad)"
+                      dot={{ r: 3.5, strokeWidth: 1 }} 
+                      activeDot={{ r: 6, strokeWidth: 0 }}
+                      isAnimationActive={true}
+                      animationDuration={600}
+                      animationEasing="ease-out"
+                    />
+                  </AreaChart>
+                ) : trendChartType === 'bar' ? (
+                  <BarChart data={last6MonthsData} margin={{ top: 10, right: 10, left: -15, bottom: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={isDarkMode ? '#374151' : '#E5E7EB'} />
+                    <XAxis 
+                      dataKey="label" 
+                      axisLine={false} 
+                      tickLine={false} 
+                      tick={{ fontSize: 11, fill: isDarkMode ? '#9CA3AF' : '#6B7280' }} 
+                    />
+                    <YAxis 
+                      axisLine={false} 
+                      tickLine={false} 
+                      tick={{ fontSize: 11, fill: isDarkMode ? '#9CA3AF' : '#6B7280' }} 
+                      tickFormatter={(val) => `₹${val.toLocaleString()}`} 
+                    />
+                    <RechartsTooltip 
+                      formatter={(value: number) => [`₹${value.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`, '']}
+                      contentStyle={tooltipStyle}
+                      itemStyle={{ color: isDarkMode ? '#F9FAFB' : '#111827' }}
+                    />
+                    <Legend 
+                      verticalAlign="top" 
+                      height={36} 
+                      iconType="circle"
+                      iconSize={8}
+                      wrapperStyle={{ fontSize: 11, color: isDarkMode ? '#F9FAFB' : '#111827' }} 
+                    />
+                    <Bar 
+                      dataKey="spent" 
+                      name="Total Spending" 
+                      fill="#6366f1" 
+                      radius={[4, 4, 0, 0]} 
+                      maxBarSize={28}
+                      isAnimationActive={true}
+                      animationDuration={600}
+                      animationEasing="ease-out"
+                    />
+                    <Bar 
+                      dataKey="budget" 
+                      name="Overall Budget Limit" 
+                      fill="#10b981" 
+                      radius={[4, 4, 0, 0]} 
+                      maxBarSize={28}
+                      isAnimationActive={true}
+                      animationDuration={600}
+                      animationEasing="ease-out"
+                    />
+                  </BarChart>
+                ) : (
+                  <LineChart data={last6MonthsData} margin={{ top: 10, right: 10, left: -15, bottom: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={isDarkMode ? '#374151' : '#E5E7EB'} />
+                    <XAxis 
+                      dataKey="label" 
+                      axisLine={false} 
+                      tickLine={false} 
+                      tick={{ fontSize: 11, fill: isDarkMode ? '#9CA3AF' : '#6B7280' }} 
+                    />
+                    <YAxis 
+                      axisLine={false} 
+                      tickLine={false} 
+                      tick={{ fontSize: 11, fill: isDarkMode ? '#9CA3AF' : '#6B7280' }} 
+                      tickFormatter={(val) => `₹${val.toLocaleString()}`} 
+                    />
+                    <RechartsTooltip 
+                      formatter={(value: number) => [`₹${value.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`, '']}
+                      contentStyle={tooltipStyle}
+                      itemStyle={{ color: isDarkMode ? '#F9FAFB' : '#111827' }}
+                    />
+                    <Legend 
+                      verticalAlign="top" 
+                      height={36} 
+                      iconType="circle"
+                      iconSize={8}
+                      wrapperStyle={{ fontSize: 11, color: isDarkMode ? '#F9FAFB' : '#111827' }} 
+                    />
+                    <Line 
+                      type="monotone" 
+                      dataKey="spent" 
+                      name="Total Spending" 
+                      stroke="#6366f1" 
+                      strokeWidth={3} 
+                      dot={{ r: 4, strokeWidth: 1 }} 
+                      activeDot={{ r: 7, strokeWidth: 0 }}
+                      isAnimationActive={true}
+                      animationDuration={800}
+                      animationEasing="ease-out"
+                    />
+                    <Line 
+                      type="monotone" 
+                      dataKey="budget" 
+                      name="Overall Budget Limit" 
+                      stroke="#10b981" 
+                      strokeWidth={3} 
+                      strokeDasharray="5 5"
+                      dot={{ r: 4, strokeWidth: 1 }} 
+                      activeDot={{ r: 7, strokeWidth: 0 }}
+                      isAnimationActive={true}
+                      animationDuration={800}
+                      animationEasing="ease-out"
+                    />
+                  </LineChart>
+                )}
+              </ResponsiveContainer>
+            </motion.div>
+          </AnimatePresence>
         </div>
       </div>
 
