@@ -5,7 +5,7 @@ import { db, auth, loginWithGoogle, logout } from './firebase';
 import { onAuthStateChanged } from 'firebase/auth';
 import { format, addMonths, subMonths, parse, startOfMonth, endOfMonth, eachDayOfInterval, startOfWeek, endOfWeek, isSameDay, isSameMonth, addYears, subYears } from 'date-fns';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RechartsTooltip, BarChart, Bar, XAxis, YAxis, CartesianGrid, AreaChart, Area, Legend, LineChart, Line } from 'recharts';
-import { Plus, Trash2, LogOut, Loader2, Sparkles, TrendingUp, TrendingDown, DollarSign, PieChart as PieChartIcon, Activity, Sun, Moon, Repeat, Lightbulb, Target, Filter, ChevronDown, ChevronUp, X, Search, ChevronLeft, ChevronRight, Calendar, Bell, ChevronFirst, ChevronLast, Printer, AlertTriangle, Mail, Check, PiggyBank, Upload, FileSpreadsheet, Clock } from 'lucide-react';
+import { Plus, Trash2, LogOut, Loader2, Sparkles, TrendingUp, TrendingDown, DollarSign, PieChart as PieChartIcon, Activity, Sun, Moon, Repeat, Lightbulb, Target, Filter, ChevronDown, ChevronUp, X, Search, ChevronLeft, ChevronRight, Calendar, Bell, ChevronFirst, ChevronLast, Printer, AlertTriangle, Mail, Check, PiggyBank, Upload, FileSpreadsheet, Clock, Percent } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from './lib/utils';
 import * as d3 from 'd3';
@@ -2798,6 +2798,7 @@ function Dashboard({ expenses, incomes = [], recurringExpenses, isDarkMode, budg
   const [compareRange, setCompareRange] = useState<number>(6);
   const [compareChartType, setCompareChartType] = useState<'total' | 'categories'>('total');
   const [selectedTrendCategories, setSelectedTrendCategories] = useState<string[]>(Object.keys(CATEGORY_COLORS));
+  const [categoryTrendMetric, setCategoryTrendMetric] = useState<'amount' | 'percentage'>('amount');
 
   // --- Alert Settings and Feed Logs Audit States ---
   const [emailAlertsEnabled, setEmailAlertsEnabled] = useState(true);
@@ -3378,8 +3379,10 @@ function Dashboard({ expenses, incomes = [], recurringExpenses, isDarkMode, budg
       const totalBudget = monthBudg.reduce((sum, b) => sum + b.amount, 0);
 
       const categorySpent: Record<string, number> = {};
+      const categoryPct: Record<string, number> = {};
       Object.keys(CATEGORY_COLORS).forEach(cat => {
         categorySpent[cat] = 0;
+        categoryPct[`${cat}_pct`] = 0;
       });
       monthExp.forEach(e => {
         const cat = e.category || 'Other';
@@ -3388,6 +3391,13 @@ function Dashboard({ expenses, incomes = [], recurringExpenses, isDarkMode, budg
         } else {
           categorySpent['Other'] = parseFloat((categorySpent['Other'] + e.amount).toFixed(2));
         }
+      });
+
+      // Calculate percentage share of monthly spending for each category
+      Object.keys(CATEGORY_COLORS).forEach(cat => {
+        categoryPct[`${cat}_pct`] = totalSpent > 0 
+          ? parseFloat(((categorySpent[cat] / totalSpent) * 100).toFixed(1)) 
+          : 0;
       });
 
       const parsedDate = parse(month, 'yyyy-MM', new Date());
@@ -3399,6 +3409,7 @@ function Dashboard({ expenses, incomes = [], recurringExpenses, isDarkMode, budg
         spent: parseFloat(totalSpent.toFixed(2)),
         budget: parseFloat(totalBudget.toFixed(2)),
         ...categorySpent,
+        ...categoryPct,
       };
     });
   }, [last6MonthsList, expenses, budgetGoals]);
@@ -4654,21 +4665,96 @@ function Dashboard({ expenses, incomes = [], recurringExpenses, isDarkMode, budg
               <PieChartIcon className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />
             </div>
             <div>
-              <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-50 uppercase tracking-wider text-[10px] text-indigo-600 dark:text-indigo-400 font-mono">Category Growth Trends</h3>
+              <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-50 uppercase tracking-wider text-[10px] text-indigo-600 dark:text-indigo-400 font-mono">Category Growth & Mix Trends</h3>
               <h2 className="text-base font-bold text-gray-900 dark:text-gray-50 leading-tight">
-                {trendRangeMode === '3m' && '3-Month Category Spending Volatility'}
-                {trendRangeMode === '6m' && '6-Month Category Spending Volatility'}
-                {trendRangeMode === '1y' && '1-Year Category Spending Volatility'}
-                {trendRangeMode === 'custom' && 'Custom Range Category Spending Volatility'}
+                {categoryTrendMetric === 'percentage' ? (
+                  <>
+                    {trendRangeMode === '3m' && '3-Month Category Share (% Contribution)'}
+                    {trendRangeMode === '6m' && '6-Month Category Share (% Contribution)'}
+                    {trendRangeMode === '1y' && '1-Year Category Share (% Contribution)'}
+                    {trendRangeMode === 'custom' && 'Custom Range Category Share (% Contribution)'}
+                  </>
+                ) : (
+                  <>
+                    {trendRangeMode === '3m' && '3-Month Category Spending Volatility'}
+                    {trendRangeMode === '6m' && '6-Month Category Spending Volatility'}
+                    {trendRangeMode === '1y' && '1-Year Category Spending Volatility'}
+                    {trendRangeMode === 'custom' && 'Custom Range Category Spending Volatility'}
+                  </>
+                )}
               </h2>
               <p className="text-xs text-gray-400 mt-1">
-                Trace segmented expenditures across your personalized categories to monitor tracking consistency and monthly peaks.
+                {categoryTrendMetric === 'percentage' 
+                  ? 'Visualizing each category’s relative percentage contribution to monthly total spending to identify shifting expense priorities.'
+                  : 'Trace segmented expenditures across your personalized categories to monitor tracking consistency and monthly peaks.'}
               </p>
             </div>
           </div>
 
+          {/* Metric View Mode Toggle (Amount vs Percentage Share) */}
+          <div className="flex items-center gap-1.5 p-1 bg-gray-100 dark:bg-gray-800 rounded-xl self-start lg:self-center">
+            <button
+              type="button"
+              id="category-trend-view-amount"
+              onClick={() => setCategoryTrendMetric('amount')}
+              className={cn(
+                "px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 whitespace-nowrap",
+                categoryTrendMetric === 'amount'
+                  ? "bg-white dark:bg-gray-900 text-indigo-600 dark:text-indigo-400 shadow-sm"
+                  : "text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
+              )}
+            >
+              <span className="font-semibold text-xs">₹</span>
+              <span>Amount (₹)</span>
+            </button>
+            <button
+              type="button"
+              id="category-trend-view-percentage"
+              onClick={() => setCategoryTrendMetric('percentage')}
+              className={cn(
+                "px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 whitespace-nowrap",
+                categoryTrendMetric === 'percentage'
+                  ? "bg-white dark:bg-gray-900 text-indigo-600 dark:text-indigo-400 shadow-sm"
+                  : "text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
+              )}
+            >
+              <Percent className="w-3.5 h-3.5" />
+              <span>% Contribution</span>
+            </button>
+          </div>
+        </div>
+
+        {/* Category Filters Bar */}
+        <div className="flex flex-wrap items-center justify-between gap-3 p-3 bg-gray-50 dark:bg-gray-800/20 rounded-2xl mb-6 border border-gray-100 dark:border-gray-800">
+          <div className="flex items-center gap-2">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-gray-400 dark:text-gray-500">Categories:</span>
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                onClick={() => setSelectedTrendCategories(Object.keys(CATEGORY_COLORS))}
+                className="text-[11px] font-semibold text-indigo-600 dark:text-indigo-400 hover:underline cursor-pointer px-1.5 py-0.5 rounded"
+              >
+                All
+              </button>
+              <span className="text-gray-300 dark:text-gray-700">|</span>
+              <button
+                type="button"
+                onClick={() => {
+                  if (selectedTrendCategories.length > 1) {
+                    setSelectedTrendCategories([Object.keys(CATEGORY_COLORS)[0]]);
+                  } else {
+                    setSelectedTrendCategories(Object.keys(CATEGORY_COLORS));
+                  }
+                }}
+                className="text-[11px] font-semibold text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 cursor-pointer px-1.5 py-0.5 rounded"
+              >
+                {selectedTrendCategories.length === 1 ? 'Reset' : 'Single'}
+              </button>
+            </div>
+          </div>
+
           {/* Interactive Toggle Pills */}
-          <div className="flex flex-wrap gap-2 text-xs">
+          <div className="flex flex-wrap gap-1.5 text-xs">
             {Object.keys(CATEGORY_COLORS).map(cat => {
               const isSelected = selectedTrendCategories.includes(cat);
               const color = CATEGORY_COLORS[cat];
@@ -4687,10 +4773,10 @@ function Dashboard({ expenses, incomes = [], recurringExpenses, isDarkMode, budg
                     }
                   }}
                   className={cn(
-                    "px-3 py-1.5 rounded-full font-semibold transition-all border outline-none flex items-center gap-1.5 cursor-pointer",
+                    "px-2.5 py-1 rounded-lg text-xs font-semibold transition-all border outline-none flex items-center gap-1.5 cursor-pointer",
                     isSelected 
                       ? "text-white" 
-                      : "bg-gray-50 dark:bg-gray-800 text-gray-500 border-gray-150 dark:border-gray-750 hover:text-gray-700 dark:hover:text-gray-300"
+                      : "bg-white dark:bg-gray-800 text-gray-500 border-gray-200 dark:border-gray-700 hover:text-gray-700 dark:hover:text-gray-300"
                   )}
                   style={isSelected ? {
                     backgroundColor: color,
@@ -4706,82 +4792,106 @@ function Dashboard({ expenses, incomes = [], recurringExpenses, isDarkMode, budg
           </div>
         </div>
 
-        {/* The line chart visualization */}
-        <div className="h-72 w-full mb-3">
-          <ResponsiveContainer width="100%" height="100%">
-            <LineChart data={last6MonthsData} margin={{ top: 10, right: 10, left: -15, bottom: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={isDarkMode ? '#374151' : '#E5E7EB'} />
-              <XAxis 
-                dataKey="label" 
-                axisLine={false} 
-                tickLine={false} 
-                tick={{ fontSize: 11, fill: isDarkMode ? '#9CA3AF' : '#6B7280' }} 
-              />
-              <YAxis 
-                axisLine={false} 
-                tickLine={false} 
-                tick={{ fontSize: 11, fill: isDarkMode ? '#9CA3AF' : '#6B7280' }} 
-                tickFormatter={(val) => `₹${val.toLocaleString()}`} 
-              />
-              <RechartsTooltip 
-                formatter={(value: number, name: string) => [`₹${value.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`, name]}
-                contentStyle={tooltipStyle}
-                itemStyle={{ color: isDarkMode ? '#F9FAFB' : '#111827' }}
-              />
-              <Legend 
-                content={(props) => {
-                  const { payload } = props;
-                  if (!payload) return null;
-                  return (
-                    <div className="flex flex-wrap items-center justify-center gap-4 mb-4 select-none">
-                      <AnimatePresence mode="popLayout">
-                        {payload.map((entry: any) => {
-                          const color = entry.color || '#3B82F6';
-                          return (
-                            <motion.div
-                              key={entry.value}
-                              layout
-                              initial={{ opacity: 0, scale: 0.6, y: -5 }}
-                              animate={{ opacity: 1, scale: 1, y: 0 }}
-                              exit={{ opacity: 0, scale: 0.6, y: 5 }}
-                              transition={{ 
-                                type: "spring", 
-                                stiffness: 400, 
-                                damping: 28,
-                                layout: { type: "spring", stiffness: 450, damping: 30 }
-                              }}
-                              className="flex items-center gap-2 text-xs font-semibold text-gray-700 dark:text-gray-300"
-                            >
-                              <span 
-                                className="w-2 h-2 rounded-full inline-block shrink-0" 
-                                style={{ backgroundColor: color, boxShadow: `0 0 6px ${color}66` }} 
-                              />
-                              <span className="tracking-tight">{entry.value}</span>
-                            </motion.div>
-                          );
-                        })}
-                      </AnimatePresence>
-                    </div>
-                  );
-                }}
-              />
-              {selectedTrendCategories.map(cat => (
-                <Line 
-                  key={cat}
-                  type="monotone" 
-                  dataKey={cat} 
-                  name={cat} 
-                  stroke={CATEGORY_COLORS[cat]} 
-                  strokeWidth={2.5} 
-                  dot={{ r: 3.5, strokeWidth: 1 }} 
-                  activeDot={{ r: 6, strokeWidth: 0 }}
-                  isAnimationActive={true}
-                  animationDuration={850}
-                  animationEasing="ease-out"
-                />
-              ))}
-            </LineChart>
-          </ResponsiveContainer>
+        {/* The line chart visualization with entrance animation */}
+        <div className="h-72 w-full mb-3 relative overflow-hidden">
+          <AnimatePresence mode="wait">
+            <motion.div
+              key={`${categoryTrendMetric}-${trendRangeMode}-${selectedTrendCategories.join('-')}-${last6MonthsData.map(d => d.monthKey).join('-')}`}
+              initial={{ opacity: 0, scale: 0.98, y: 8 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.98, y: -8 }}
+              transition={{ duration: 0.28, ease: [0.4, 0, 0.2, 1] }}
+              className="w-full h-full"
+            >
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={last6MonthsData} margin={{ top: 10, right: 10, left: -10, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={isDarkMode ? '#374151' : '#E5E7EB'} />
+                  <XAxis 
+                    dataKey="label" 
+                    axisLine={false} 
+                    tickLine={false} 
+                    tick={{ fontSize: 11, fill: isDarkMode ? '#9CA3AF' : '#6B7280' }} 
+                  />
+                  <YAxis 
+                    axisLine={false} 
+                    tickLine={false} 
+                    tick={{ fontSize: 11, fill: isDarkMode ? '#9CA3AF' : '#6B7280' }} 
+                    tickFormatter={(val) => categoryTrendMetric === 'percentage' ? `${val}%` : `₹${val.toLocaleString()}`}
+                    domain={categoryTrendMetric === 'percentage' ? [0, (dataMax: number) => Math.min(100, Math.max(10, Math.ceil(dataMax * 1.1)))] : ['auto', 'auto']}
+                  />
+                  <RechartsTooltip 
+                    formatter={(value: any, name: string, item: any) => {
+                      const payload = item?.payload;
+                      if (categoryTrendMetric === 'percentage') {
+                        const rawAmount = payload ? payload[name] : null;
+                        const amountStr = rawAmount !== null && rawAmount !== undefined 
+                          ? ` (₹${Number(rawAmount).toLocaleString('en-IN', { minimumFractionDigits: 2 })})` 
+                          : '';
+                        return [`${value}%${amountStr}`, `${name} Share`];
+                      }
+                      const pctVal = payload ? payload[`${name}_pct`] : null;
+                      const pctStr = pctVal !== null && pctVal !== undefined ? ` (${pctVal}%)` : '';
+                      return [`₹${Number(value).toLocaleString('en-IN', { minimumFractionDigits: 2 })}${pctStr}`, name];
+                    }}
+                    contentStyle={tooltipStyle}
+                    itemStyle={{ color: isDarkMode ? '#F9FAFB' : '#111827' }}
+                  />
+                  <Legend 
+                    content={(props) => {
+                      const { payload } = props;
+                      if (!payload) return null;
+                      return (
+                        <div className="flex flex-wrap items-center justify-center gap-4 mb-4 select-none">
+                          <AnimatePresence mode="popLayout">
+                            {payload.map((entry: any) => {
+                              const color = entry.color || '#3B82F6';
+                              return (
+                                <motion.div
+                                  key={entry.value}
+                                  layout
+                                  initial={{ opacity: 0, scale: 0.6, y: -5 }}
+                                  animate={{ opacity: 1, scale: 1, y: 0 }}
+                                  exit={{ opacity: 0, scale: 0.6, y: 5 }}
+                                  transition={{ 
+                                    type: "spring", 
+                                    stiffness: 400, 
+                                    damping: 28,
+                                    layout: { type: "spring", stiffness: 450, damping: 30 }
+                                  }}
+                                  className="flex items-center gap-2 text-xs font-semibold text-gray-700 dark:text-gray-300"
+                                >
+                                  <span 
+                                    className="w-2 h-2 rounded-full inline-block shrink-0" 
+                                    style={{ backgroundColor: color, boxShadow: `0 0 6px ${color}66` }} 
+                                  />
+                                  <span className="tracking-tight">{entry.value}</span>
+                                </motion.div>
+                              );
+                            })}
+                          </AnimatePresence>
+                        </div>
+                      );
+                    }}
+                  />
+                  {selectedTrendCategories.map(cat => (
+                    <Line 
+                      key={cat}
+                      type="monotone" 
+                      dataKey={categoryTrendMetric === 'percentage' ? `${cat}_pct` : cat} 
+                      name={cat} 
+                      stroke={CATEGORY_COLORS[cat]} 
+                      strokeWidth={2.5} 
+                      dot={{ r: 3.5, strokeWidth: 1 }} 
+                      activeDot={{ r: 6, strokeWidth: 0 }}
+                      isAnimationActive={true}
+                      animationDuration={750}
+                      animationEasing="ease-out"
+                    />
+                  ))}
+                </LineChart>
+              </ResponsiveContainer>
+            </motion.div>
+          </AnimatePresence>
         </div>
       </div>
 
