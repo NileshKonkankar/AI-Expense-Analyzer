@@ -162,6 +162,10 @@
           "type": "number",
           "description": "The target to save"
         },
+        "monthlyContribution": {
+          "type": "number",
+          "description": "Optional recurring monthly contribution target towards this savings goal"
+        },
         "createdAt": {
           "type": "timestamp",
           "description": "When the savings goal was created"

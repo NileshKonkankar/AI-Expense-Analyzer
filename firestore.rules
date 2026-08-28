@@ -84,10 +84,11 @@ service cloud.firestore {
     }
 
     function isValidSavingsGoal(data) {
-      return hasOnlyAllowedFields(['userId', 'title', 'targetAmount', 'createdAt']) &&
+      return hasOnlyAllowedFields(['userId', 'title', 'targetAmount', 'monthlyContribution', 'createdAt']) &&
              data.userId is string && data.userId == request.auth.uid &&
              data.title is string && data.title.size() > 0 && data.title.size() <= 100 &&
              data.targetAmount is number && data.targetAmount > 0 &&
+             (!('monthlyContribution' in data) || (data.monthlyContribution is number && data.monthlyContribution >= 0)) &&
              data.createdAt is timestamp;
     }
 
